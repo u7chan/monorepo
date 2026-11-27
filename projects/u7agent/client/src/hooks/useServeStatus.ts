@@ -6,12 +6,8 @@ import { NO_SERVE_ROW, openServedApp, servedAppRow, type ServeRowState } from ".
 import type { ServeStatus } from "../types";
 
 /**
- * サービスの状態 (閲覧中の会話から見た値)。取得と操作の規則はこの hook と client/test/serveStatus.test.ts が正で、
- * 採用しなかった案と理由は docs/sandbox.md#serveサービスの公開と起動停止 が持つ。
- *   - 会話を切り替えたら前の会話の状態を描かない (選択中の id と要求の通し番号で古い応答を捨てる)
- *   - 応答がポーリング間隔より遅くても状態は更新される (飛行中の要求があるうちは次を発行しない)
- *   - 取得に失敗したらリンクも操作も出さない (到達不可と区別する)
- *   - 起動は期限つきのプローブまで確定しないため、押した直後の遷移状態 (starting) を持つ
+ * サービスの状態 (閲覧中の会話から見た値)。切替で古い応答を捨て、飛行中の要求が終わるまで次を
+ * 発行せず、失敗はリンクも操作も出さない (起動は starting を持つ。docs/sandbox.md#serveサービスの公開と起動停止)。
  */
 export interface ServeState {
   status: ServeStatus | null;
@@ -47,9 +43,10 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   sessionIdRef.current = sessionId;
   /** 会話選択の世代。切替のたびに進み、切替前の操作結果 (start / stop) の適用を防ぐ */
   const selectionSeq = useRef(0);
-  // 会話を切り替えたフレームで前の会話の状態を描かず、切替前の取得結果も無効化する。
-  // 印を外すだけだと A → B → A と戻ったときに最初の A の応答が再び有効になり、
-  // その間に他会話へ置き換わっていれば古い状態を描いてしまう (Effect を待つと 1 フレーム古い値が出る)
+  /**
+   * 会話を切り替えたフレームで前の会話の状態を描かず、切替前の取得結果も無効化する (印を外すだけだと
+   * A → B → A で最初の A の応答が再び有効になる。Effect を待つと 1 フレーム古い値が出る)。
+   */
   if (tracked !== sessionId) {
     setTracked(sessionId);
     setState((prev) => ({ ...IDLE, row: servedAppRow(prev.row, { kind: "session-changed" }) }));
@@ -58,18 +55,16 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   }
 
   /**
-   * 進行中の取得を捨てる。操作の前と、操作の応答を適用する直前に呼び、操作で確定した状態より
-   * 古い取得結果で上書きさせない (会話 id が同じでも応答の到着順は入れ替わり得る)。
-   * 会話切替も同じ扱いで、切替前の番号までを無効化する。
+   * 進行中の取得を捨てる。操作の前と応答を適用する直前に呼び、確定した状態より古い取得結果で
+   * 上書きさせない (会話 id が同じでも到着順は入れ替わり得る。切替も同じ扱い)。
    */
   const invalidatePending = useCallback((): void => {
     invalidatedUpTo.current = requestSeq.current;
   }, []);
 
   /**
-   * 取得。応答がポーリング間隔より遅くても状態は更新される:
-   * 飛行中の要求があるうちは次を発行せず (古い要求を追い越さない)、返った応答は
-   * 「最後に適用したものより新しい」限り適用する (最新のみを適用するゲートで飢えさせない)。
+   * 取得。飛行中の要求があるうちは次を発行せず (古い要求を追い越さない)、返った応答は
+   * 「最後に適用したものより新しい」限り適用する (最新のみのゲートで飢えさせない)。
    */
   const refresh = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;

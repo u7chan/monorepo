@@ -35,9 +35,8 @@ type ReorderDragSession = {
   pointerId: number;
   id: string;
   /**
-   * capture を取得した要素。グリップではなく**行の容器**が取る: live 差し替えでは React が行を
-   * DOM 上で移動させるため、グリップ自身が外れて capture が失われる（docs/ui-layout.md）。
-   * 終了経路で解放するのはこの要素（どの経路でも capture を残さない）。
+   * capture を取得した要素。グリップではなく行の容器が取る (live 差し替えで React が行を動かすと
+   * グリップ自身が外れる)。終了経路で解放するのはこの要素 (どの経路でも capture を残さない)。
    */
   captured: HTMLElement;
   /** 現在の表示順（ドラッグできる行だけ）。live 差し替えはこの配列の並べ替えとして計算する */
@@ -87,12 +86,8 @@ export type ReorderDrag = {
 };
 
 /**
- * 一覧のグリップのドラッグ。判定は `lib/listReorder.ts` の純関数へ置き、ここは pointer capture・
- * live 差し替え・端の自動スクロール・終了経路の後始末だけを持つ（エージェント / 定型プロンプト /
- * スペース / 環境変数の一覧で共有）。
- * 行側の名前（属性・ CSS 変数・ body クラス）は `naming` で受け、見た目のクラスは呼び出し側が付ける。
- * 終了経路（pointerup / pointercancel / lostpointercapture / Escape / unmount）は finishDrag 1 箇所に
- * まとめ、二重に走っても安全にする（SidebarResizeHandle と同じ作法）。
+ * 一覧のグリップのドラッグ。判定は `lib/listReorder.ts` に置き、ここは pointer capture・live
+ * 差し替え・自動スクロールを持つ。終了経路は finishDrag 1 箇所にまとめ、二重でも安全にする。
  */
 export function useReorderDrag({
   containerRef,
@@ -155,9 +150,8 @@ export function useReorderDrag({
   );
 
   /**
-   * 掴んだ行をポインタの下へ留める。rect は自分の translate を含むので、いま書いている値を差し引いて
-   * layout 位置を出し、**祖先のスクロールを含む viewport 座標**で合わせる（offsetTop では一覧の
-   * スクロール枠の scrollTop が差し引かれない）。
+   * 掴んだ行をポインタの下へ留める。rect は自分の translate を含むので差し引いて layout 位置を出し、
+   * 祖先のスクロールを含む viewport 座標で合わせる (offsetTop では scrollTop が引かれない)。
    */
   const followPointer = useCallback(
     (drag: ReorderDragSession): boolean => {
@@ -305,10 +299,10 @@ export function useReorderDrag({
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [draggingId, finishDrag]);
 
-  // レイアウトの切替（並列表示 ⇄ 一覧 + シート / desktop ⇄ singleColumn）では一覧の容器が作り替わるが、
-  // AgentList は同じ位置・型のまま再利用されるため unmount では拾えない。**ドラッグ中だけ** resize を
-  // 購読し、切替を検知したら共通の終了経路（finishDrag）へ載せる。購読の解除は draggingId が null へ
-  // 戻る経路（finishDrag / unmount）に乗るので、ドラッグしていない間の挙動と負担は変えない
+  /**
+   * レイアウトの切替では一覧の容器が作り替わるが、AgentList は再利用され unmount では拾えない。
+   * ドラッグ中だけ resize を購読し、切替を検知したら finishDrag へ載せる (購読は draggingId で外す)。
+   */
   useEffect(() => {
     if (draggingId === null) return;
     const onResize = () => {

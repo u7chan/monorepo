@@ -25,10 +25,8 @@ import {
 } from "./chatCards";
 
 /**
- * run_start に対応する自分の user entry が既に履歴へ載っているか (送信直前の preflight compaction など)。
- * 送信の run id が分かるときは runId が一致する item だけを見るので、別クライアントの同一文面 entry を
- * 自分のものにしない。run id が無い旧経路は、送信時点 (`echo.since`) より後に現れた runId 無しの
- * 同一文面へ縮退する (`fallbackEchoTarget`)。
+ * run_start に対応する自分の user entry が既に履歴へ載っているか (preflight compaction など)。
+ * run id が分かるときは一致だけを見て、旧経路は `echo.since` より後の同一文面へ縮退する。
  */
 function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
   const live = (bubble: Bubble) => bubble.entryId !== undefined && bubble.role === "user";
@@ -114,10 +112,8 @@ function rememberRunPrompt(prompts: Record<string, string>, runId: string, promp
 }
 
 /**
- * host を次の表示可能な本文 item にする。確定履歴の投影は本文を持つ item にツールを繰り上げるので、
- * 同じカード (同じ id) のまま `assistantId` と本文だけを足せば、ライブと確定後でヘッダーの位置・
- * 高さ・件数・プレビューが変わらない。host の印は run が終わるまで残す: 本文 item を引き取った後も
- * そのターンの一部で、`run_end` までは実行中のカードとコピーを出さない。
+ * host を次の表示可能な本文 item にする。同じカードのまま `assistantId` と本文だけを足せば、
+ * ライブと確定後でヘッダーの位置・件数が変わらない (印は run_end まで残す)。
  */
 function adoptToolHost(state: ChatState, assistantKey: string): ChatState | undefined {
   const host = toolHostOf(state.bubbles);
@@ -154,11 +150,10 @@ type RunChatAction = Extract<
 export function applyRunAction(state: ChatState, action: RunChatAction): ChatState {
   switch (action.type) {
     case "runStart": {
-      // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
-      // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない。
-      // 未送信 / 受理済みのバブルは、この run_start で「サーバーが実行を開始した」ことを確認済みに
-      // する (楽観的に再送したバブルも含める。遅れて届いた失敗で未送信へ戻さない)。待機中
-      // (`queued`) のバブルは送信応答だけが run id を付けているため、ここで合わせて拾う
+      /**
+       * 自分の送信を実行する run は run id で厳密に照合する (id の無いエコーは照合せず保持)。
+       * 未送信 / 受理済みはここで実行開始を確認済みにし、遅れて届いた失敗で未送信へ戻さない。
+       */
       const started = state.bubbles.find(
         (bubble) =>
           bubble.entryId === undefined &&
@@ -171,9 +166,10 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         started === undefined
           ? undefined
           : { ...started, unsent: false, accepted: true, confirmed: true, ...QUEUE_CLEARED };
-      // 待機から実行に移った送信は末尾へ移す。実行中ターンがまだ assistant バブルを作っていない窓では、
-      // 最初の delta がこの送信より後ろへ応答を積むため、ここで揃えないと実行に移った瞬間に前の応答の
-      // 途中へ現れる (他のバブルの相対順は変えない)
+      /**
+       * 待機から実行に移った送信は末尾へ移す。実行中ターンがまだバブルを作っていない窓では、最初の
+       * delta が後ろへ積むため、ここで揃えないと前の応答の途中に現れる (他の相対順は変えない)。
+       */
       const moveStartedToEnd = started?.queued === true;
       const base =
         startedBubble === undefined

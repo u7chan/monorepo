@@ -44,9 +44,8 @@ export type RenameSessionDeps = {
 };
 
 /**
- * 会話タイトルの変更。初期値は現在のタイトルで、取り消し・空・未変更はサーバーへ送らない。
- * 応答のタイトルを一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
- * 失敗は楽観反映をしないので、理由だけを状態行へ出す。
+ * 会話タイトルの変更。取り消し・空・未変更は送らず、応答のタイトルを一覧へ反映する
+ * (ヘッダも一覧から引くので、これだけで画面が追従する)。失敗は理由を状態行へ出す。
  */
 export async function renameSessionTitle(id: string, deps: RenameSessionDeps): Promise<void> {
   const current = deps.sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
@@ -96,9 +95,8 @@ export type ForkSessionDeps = {
 };
 
 /**
- * 会話を分岐する。子は親の末尾までの履歴を持ち、作業フォルダ / 添付は親と共有する。
- * 成功したら一覧を取り直し、子の payload を返す (子を開くかは App が選択の世代で決める)。
- * 失敗は理由をダイアログへ返すため投げ直す。
+ * 会話を分岐する。子は親の末尾までの履歴を持ち、作業フォルダ / 添付は共有する。成功したら一覧を
+ * 取り直して子の payload を返し、失敗は理由をダイアログへ返すため投げ直す。
  */
 export async function branchSession(
   id: string,
@@ -116,10 +114,8 @@ export type HandoffSessionDeps = {
 };
 
 /**
- * 会話を引き継ぐ。履歴は破棄され、エージェントは差し替わり、別スペースなら作業フォルダ / 添付 / cwd キーの行が
- * 移動先へ移る (不可逆)。成功したら一覧を取り直し、応答を返す (スペースの切替と会話の開き直しは
- * App が `openOwnerSession` と同じ経路で行う。一覧からの削除と同じ移り先の規則は使わない)。
- * 失敗は理由をダイアログへ返すため投げ直す。
+ * 会話を引き継ぐ (履歴は破棄、エージェントは差し替え、別スペースなら作業フォルダ / 添付も移動)。
+ * 成功したら一覧を取り直し、開き直しは App が `openOwnerSession` と同じ経路で行う。
  */
 export async function moveSession(
   id: string,
@@ -144,8 +140,7 @@ export type ClearHistoryDeps = SessionListDeps & {
 
 /**
  * 会話履歴のクリア。確認時点の履歴世代を控えてから確認し、成功したら一覧を取り直す。
- * 開いている会話は同じ id / URL のまま開き直し、旧バブルと取得中の旧ページを捨てる
- * (クリア後の再読み込みは `acceptPayload` の履歴世代の判定でも行う)。
+ * 開いている会話は同じ id / URL のまま開き直し、旧バブルと取得中の旧ページを捨てる。
  */
 export async function clearSessionHistory(id: string, deps: ClearHistoryDeps): Promise<void> {
   const title = deps.sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
