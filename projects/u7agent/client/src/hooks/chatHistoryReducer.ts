@@ -437,9 +437,8 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
 }
 
 /**
- * host の控えが payload の run のものか。どちらかが不明 (run を持たない payload / 保存済みデータ) な
- * ときは run の変更を判定できないため保持する。判定できるときに違えば、前の run の完了済み host を
- * live に戻さない
+ * host の控えが payload の run のものか。run が不明な payload / 保存済みデータでは判定できないため保持し、
+ * 判定できて違えば前の run の完了済み host を live に戻さない。
  */
 function hostLedgerBelongsToRun(ledgerRunId: string | undefined, runId: string | undefined): boolean {
   return ledgerRunId === undefined || runId === undefined || ledgerRunId === runId;
@@ -464,10 +463,8 @@ function settleDroppedHosts(bubbles: Bubble[], assistantIds: readonly string[]):
 }
 
 /**
- * ページ再構築の後に、本文 item を引き取った host の印を戻す。mergeHistoryPage は履歴 item から
- * バブルを組み直し、host は履歴に載らないため、対応付けが済んだ host は live の照合対象から外れて
- * 印を失う。run の終端 (run_end / run_start) までは同じ応答を host として扱い、実行中の行とコピーを
- * 再構築の後に出さない。応答が履歴から消えていれば何もしない。
+ * ページ再構築の後に、本文 item を引き取った host の印を戻す。host は履歴に載らないので照合対象から
+ * 外れて印を失うため、run の終端までは同じ応答として扱う (応答が履歴から消えていれば何もしない)。
  */
 function restoreLiveHost(state: ChatState, bubbles: Bubble[]): Bubble[] {
   if (state.liveHostAssistantIds.length === 0) return bubbles;
@@ -483,9 +480,8 @@ function restoreLiveHost(state: ChatState, bubbles: Bubble[]): Bubble[] {
 }
 
 /**
- * 履歴 API の最新ページが届くまでの初期表示に使う payload.messages の上限。全量を組むと長い会話で
- * バブル数と merge が履歴長に比例して増え、最初のページ適用が固まるため、直近だけを即時表示する。
- * 古い側はスクロール時のページ取得に委ね、履歴 API が無いときだけ全量で組み直す。
+ * 履歴 API の最新ページが届くまでの初期表示に使う payload.messages の上限。全量を組むと最初の適用が
+ * 履歴長に比例して固まるため直近だけを出し、古い側はページ取得に委ねる (履歴 API が無いときは全量)。
  */
 export const LEGACY_INITIAL_MAX_MESSAGES = 200;
 
@@ -581,12 +577,8 @@ function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" |
 }
 
 /**
- * payload.pendingSends (202 で受理したがまだ entry になっていない送信) をバブル列へ写す。
- * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
- * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
- * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
- * payload に載った送信は停止の控え (`clearedSendIds`) から外す。
- * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
+ * payload.pendingSends をバブル列へ写す。`unsent` は未送信へ替え、足りない分は末尾へ足し、一覧から
+ * 消えた未送信は落とす (queued / running は保つ。載った送信は控えから外し、消えた run の待機も解除)。
  */
 function applyPendingSends(
   bubbles: Bubble[],
@@ -640,10 +632,8 @@ function applyPendingSends(
   }
   for (const send of pendingSends) {
     if (seen.has(send.sendId)) continue;
-    // エコーは送信応答より先に描画される。payload が先に pending 送信を配ったときに同じ本文を
-    // もう 1 件足すと、応答が届くまで 1 フレームだけ同じ発言が 2 件並び、追従中のスクロールが跳ねる。
-    // 送信IDを持たないエコーが同じ本文なら、そのエコーへ送信IDを結び付ける (pending から外れた
-    // 旧経路のエコーも、まだ履歴 item になっていなければ同じ発言なので対象にする)
+    // エコーは送信応答より先に描画される。payload が先に pending を配ったとき同じ本文をもう 1 件足すと
+    // 1 フレームだけ二重になりスクロールが跳ねるため、送信IDの無いエコーには送信IDを結び付ける。
     const adopted = next.findIndex(
       (bubble) =>
         bubble.entryId === undefined &&
@@ -725,9 +715,8 @@ type HistoryChatAction = Extract<
 export function applyHistoryAction(state: ChatState, action: HistoryChatAction): ChatState {
   switch (action.type) {
     case "newChat": {
-      // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
-      // nextId だけは引き継ぐ (セッションを跨いで古いイベントの bubble id と衝突させない)。
-      // runEndSeq も引き継ぐ (右パネルの合図をセッションを跨いで単調に保つ)。
+      // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。nextId と
+      // runEndSeq だけは引き継ぐ (bubble id の衝突を避け、右パネルの合図を単調に保つ)。
       return {
         ...initialChatState,
         nextId: state.nextId,
@@ -774,10 +763,8 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
       const sessionChanged = payload.sessionId !== state.sessionId;
       // 未作成チャットへ最初のセッションが届くのは切替ではない (ストリーミング中の応答を捨てない)
       const switchedSession = state.sessionId !== "" && sessionChanged;
-      // 全履歴 API が使える間は payload.messages (有効コンテキスト) ではなく履歴ページを表示の正とする。
-      // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
-      // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
-      // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
+      // 全履歴 API が使える間は payload.messages ではなく履歴ページを表示の正とする。組み直さないのは、
+      // 取得済みの古いページを消さないため (取り込み済みがある間はページ取得に失敗しても messages を使わない)。
       const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
       // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
       // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
@@ -1076,9 +1063,8 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
       // currentAssistantId は実行中のときだけ補完先へ向ける
       next = attachRunToolCards(next, status === "running");
       if (status === "running") {
-        // 復帰の文言は長い 1 文 (「実行中…（タブを閉じても処理は続きます）」) なので由来を持たせない
-        // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する。
-        // 回答待ちの判定に status を使わないのは、resync ではリプレイされないため
+        // 復帰の文言は長い 1 文なので由来を持たせない (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを
+        // 配る次の status で再開する (回答待ちの判定に status を使わないのは resync でリプレイされないため)。
         next = {
           ...next,
           activity: pendingAskUserQuestionCount(runTools, status) > 0 ? ASK_USER_WAITING_TEXT : RESUMED_RUN_ACTIVITY,
@@ -1137,9 +1123,8 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
           state.currentAssistantId,
         );
       }
-      // host の控えは同じ run の再同期だけで使う。切断中に前の run が終わり次の run が始まると
-      // `run_start` のリプレイなしで `resync` だけが届くため、run が変わっていたら前ターンの
-      // 完了済み host を live に戻さない (コピーと実行中の行を隠したままにしない)
+      // host の控えは同じ run の再同期だけで使う。切断中に run が変わると `run_start` のリプレイが無く
+      // `resync` だけが届くため、run が違えば前ターンの完了済み host を live に戻さない。
       const retainedHostIds =
         status === "running" && !switchedSession && hostLedgerBelongsToRun(state.liveHostRunId, payload.run?.id)
           ? state.liveHostAssistantIds
@@ -1221,9 +1206,8 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
           return attachRunToolCards(applyHistoryMerge(state, latestMerge, pending), state.runStatus === "running");
         }
       }
-      // 3) 欠落区間が 1 ページに収まらない / 分岐が変わった。取ってある gap ページは
-      //    保留ページと連続しているので捨てずに組み込み、カーソルを gap ページ側へ進める
-      //    (同じ before を再取得しない)
+      // 3) 欠落区間が 1 ページに収まらない / 分岐が変わった。取ってある gap ページは保留ページと連続するので
+      // 捨てずに組み込み、カーソルを gap ページ側へ進める (同じ before を再取得しない)。
       if (action.page.items.length > 0) {
         const rebuilt = rebuildHistoryPage(bundle, action.page, { live, pendingEchoIds: state.pendingEchoIds });
         const withPending = mergeHistoryPage(rebuilt, pending, {
