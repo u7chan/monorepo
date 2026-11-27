@@ -160,9 +160,8 @@ function linkNode(href: string, text: string): MdInline {
 }
 
 /**
- * `$…$`。開き直後と閉じ直前が空白でないこと、同じ段落内に閉じがあること、
- * トークン化が成功することをすべて満たすときだけ数式にする (通貨記号と衝突させない)。
- * 区切りは揃っているのに中身を解釈できないときは、記法ごと literal (原文) にする。
+ * `$…$`。開き直後と閉じ直前が空白でないこと、同じ段落内に閉じがあること、トークン化が成功することを
+ * すべて満たすときだけ数式にする (通貨記号と衝突させない)。解釈できないときは記法ごと原文にする。
  */
 function readDollarMath(text: string, start: number, state: ScanState): { node: MdInline; end: number } | null {
   // `$$` はディスプレイ数式の区切りなので、ここでは解釈しない

@@ -65,9 +65,8 @@ export function isFileDrag(types: readonly string[]): boolean {
 }
 
 /**
- * 同時実行数を守って worker を回す。worker が失敗しても残りを続け、全件の決着後に解決する
- * （1 件の拒否で後続を落とさない）。新しい項目はこの関数の外のキューが持ち、呼び出し側が
- * 1 本の pool だけを走らせることで、複数回のドロップでも同時数を超えない。
+ * 同時実行数を守って worker を回す。worker が失敗しても残りを続け、全件の決着後に解決する (1 件の
+ * 拒否で後続を落とさない)。新しい項目は外のキューが持ち、1 本の pool だけを走らせる。
  */
 export async function runTaskPool<T>(
   items: readonly T[],

@@ -46,11 +46,8 @@ export type FileRefSelection = { sessionId: string; switchSeq: number };
 export type FileRefOpenOutcome = { kind: "opened" } | { kind: "failed"; message: string } | { kind: "discarded" };
 
 /**
- * クリックごとに世代を進め、**最後のクリックの結果だけを適用する** opener を作る。確認は面の切替・要求の
- * 登録より前に完了させ、実在を確認できたときだけ `open` を呼ぶ。確認中に選択中セッションが切り替わった
- * 結果も失効させる (要求は開いた時点の選択中セッションへ登録するため、遅い結果が新しいセッションへ混ざらない)。
- * 判定は切替世代で行う: 開始時と完了時の ID を比べると、切替をまたいで同じ ID へ戻ったときに失効が
- * 巻き戻る。opener は App の存続期間で 1 つに固定する前提で、作り直すと世代が戻る。
+ * クリックごとに世代を進め、**最後のクリックの結果だけを適用する** opener を作る。確認は面の切替・
+ * 要求の登録より前に済ませ、判定は切替世代で行う (開始時と完了時の ID 比較では同じ ID へ戻ると巻き戻る)。
  */
 export function createFileRefOpener(deps: {
   check: (target: FileRefTarget) => Promise<FileRefCheck>;
