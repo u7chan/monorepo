@@ -19,8 +19,7 @@ const TRIAL_POLL_INTERVAL_MS = 2_000;
 
 /**
  * 設定 → コンテンツ生成の試行ジョブの state。一覧は開いているタブの種別だけを先頭ページから取り、
- * 実行中の試行がある間は `running` の行だけをポーリングする
- * （取得順と注記の規則は `client/src/lib/contentTrialsStore.ts`）。
+ * 実行中の試行がある間は `running` の行だけをポーリングする (規則は `lib/contentTrialsStore.ts`)。
  */
 export function useContentTrials({
   activeSubsection,

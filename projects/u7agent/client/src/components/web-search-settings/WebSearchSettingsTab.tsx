@@ -44,11 +44,8 @@ export type WebSearchSettingsTabProps = {
 };
 
 /**
- * 設定 → Web 検索の本文。有効 / 無効（実行時 OFF スイッチ）と、既定の provider +
- * provider ごとのキーを 1 面にまとめる。
- *
- * provider を選ぶと下の 1 枚がその provider の設定に入れ替わり、選んだ時点で既定が保存される
- * （別の「〜を既定にする」ボタンは置かない）。キーの入力は保存できたときだけ捨て、失敗時は残す。
+ * 設定 → Web 検索の本文。有効 / 無効と、既定の provider + provider ごとのキーを 1 面にまとめる。
+ * provider を選んだ時点で既定が保存され (別のボタンは置かない)、キーは保存できたときだけ捨てる。
  */
 export function WebSearchSettingsTab({
   settings,

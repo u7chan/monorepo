@@ -10,9 +10,8 @@ import {
 import { startTranscription, type VoiceInputCapture } from "../lib/voiceInput/session";
 
 /**
- * 入力欄から始める録音 1 回分。DOM を持たない制御は `client/src/lib/voiceInput/composer.ts` に置き、
- * ここはブラウザの実体（マイク・peer・期限 worker）と `pagehide` の購読を結ぶだけにする。
- * 終了の規則（画面移動・会話の切替・アンマウント）は呼び出し側が `cancel()` を呼んで揃える。
+ * 入力欄から始める録音 1 回分。DOM を持たない制御は `lib/voiceInput/composer.ts` に置き、ここは
+ * ブラウザの実体 (マイク・peer・期限 worker) と `pagehide` の購読を結ぶだけにする。
  */
 export function useComposerVoiceInput(): {
   state: VoiceInputComposerState;

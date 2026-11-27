@@ -19,8 +19,7 @@ const LOAD_ERROR = "Cloudflare の設定を読み込めませんでした。";
 
 /**
  * 設定 → 共有 → 接続 の state。GET はアカウント ID と登録状態だけで、トークンは応答に載らない。
- * 保存の応答も同じ形なので、成功後は画面がアカウント ID だけを追随させる。
- * 接続確認は明示操作でだけ走り、結果を保存しない（`note` にも載せない）。
+ * 保存の応答も同じ形なので成功後はアカウント ID だけを追随させ、接続確認は結果を保存しない。
  */
 export function useCloudflareSettings() {
   const [checking, setChecking] = useState(false);
