@@ -18,9 +18,8 @@ export type FileTreeHeightResize = {
   /** min == max の高さ (容器がプレビューの下限以下) ではハンドルを出さない */
   resizable: boolean;
   /**
-   * ドラッグ中の追従。state を動かさずコンテナの CSS 変数だけを書き換える (ツリーの行と
-   * スクロール位置を含み、move ごとの再描画を避ける)。clamp は呼び出し側で済ませておく。
-   * null は未指定 (auto) へ戻す (移動ゼロで終わったドラッグの後始末)。
+   * ドラッグ中の追従。state を動かさずコンテナの CSS 変数だけを書き換える (行とスクロール位置の
+   * 再描画を避ける)。clamp は呼び出し側で済ませ、null は未指定 (auto) へ戻す。
    */
   preview(height: number | null): void;
   /** 確定。state と保存値を更新する (ドラッグの終了 / キーボード操作) */
@@ -42,18 +41,18 @@ export type FileTreeHeightInput = {
 };
 
 /**
- * 上下 2 段のときのファイルツリーの高さ。state は「ユーザーが示した希望高さ」(clamp 前) で、
- * 表示高さは bounds で clamp する (狭い窓で選んでも、広げ直したときに選んだ高さへ戻せる)。
- * 未指定 (null) は px を書かず、CSS の `height: auto` と上限に任せる (内容の高さに追随させる)。
+ * 上下 2 段のときのファイルツリーの高さ。state は clamp 前の希望高さで、表示は bounds で clamp する
+ * (狭い窓で選んでも広げ直したときに戻せる)。未指定 (null) は CSS の auto と上限に任せる。
  */
 export function useFileTreeHeight({ containerRef, containerHeight }: FileTreeHeightInput): FileTreeHeight {
   const [requested, setRequested] = useState<number | null>(() => fileTreeHeightStore.read());
   const bounds = fileTreeHeightBounds(containerHeight);
   const height = fileTreeHeight(requested, containerHeight);
 
-  // 依存を空にして identity を固定する (ハンドルのアンマウント時の後始末がこれに乗っている)。
-  // 未指定は変数を消す: `--file-tree-height` に auto を入れると CSS 側の `max-height: var(--file-tree-height,
-  // ...)` が `max-height: auto` になって上限が消えるため、未指定は CSS の既定 (auto + 上限) へ返す
+  /**
+   * 依存を空にして identity を固定する (アンマウント時の後始末がこれに乗っている)。未指定は変数を
+   * 消す (`auto` を入れると CSS の `max-height` が `auto` になり上限が消える)。
+   */
   const preview = useCallback(
     (next: number | null) => {
       const container = containerRef.current;
