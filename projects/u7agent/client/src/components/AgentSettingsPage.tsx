@@ -43,9 +43,8 @@ function orderNoteText(kind: ReorderNoteKind, message: string): string {
 }
 
 /**
- * エージェント定義の管理ページ。900px 以上の desktop では一覧と編集面を並べ、
- * それ以外 (singleColumn / 狭い desktop / 低い窓) では同じページの中で一覧 ⇄ 詳細を切り替える
- * (docs/ui-layout.md の「設定の一覧と編集の境界」)。
+ * エージェント定義の管理ページ。900px 以上の desktop は一覧と編集面を並べ、それ以外は同じページで
+ * 一覧 ⇄ 詳細を切り替える (docs/ui-layout.md の「設定の一覧と編集の境界」)。
  */
 export function AgentSettingsPage({
   catalog,
@@ -100,9 +99,10 @@ export function AgentSettingsPage({
   const builtinEditing =
     catalog.builtinAgent && catalog.builtinAgent.id === editingAgent?.id ? editingAgent : undefined;
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照。
-  // 初期化は参照ではなく**編集対象の定義の内容**で判定する: 並び順だけの更新や、確定後の取り直し
-  // （同じ内容でも別のオブジェクトが返る）で、入力中の未保存の下書きを消さない
+  /**
+   * 下書きはページが持つ (docs/ui-layout.md の「設定の一覧と編集の境界」)。初期化の判定は参照ではなく
+   * 編集対象の内容で行い、並び替えや同じ内容の取り直しで未保存の下書きを消さない。
+   */
   const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(editingAgent));
   const [formSource, setFormSource] = useState(() => ({ editingId, key: agentFormKey(editingAgent) }));
   const nextFormKey = agentFormKey(editingAgent);

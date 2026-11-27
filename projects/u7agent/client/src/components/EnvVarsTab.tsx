@@ -75,8 +75,7 @@ function keepListed(record: Record<string, string>, listed: ReadonlySet<string>)
 
 /**
  * 作業環境 → 環境変数タブ。単一リスト + 種別バッジで、追加フォームで種別を選ぶ (既定はシークレット)。
- * 一覧は名前・種別・更新時刻だけを返すため、値は変数の行だけ詳細 API から引いて state に持つ
- * (シークレットは API にも返す経路が無い)。設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
+ * 値は詳細 API から引いて state に持つ (シークレットは API にも返す経路が無い。docs/secrets.md)。
  */
 export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const { createSecret, deleteSecret, getSecretDetail, getSecrets, reorderSecrets, updateSecret } = useSpaceApi();
@@ -293,9 +292,8 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const submittingDisabled = busy || (editing ? !canSubmitEnvValue(value) : !canSubmitEnvDraft({ name, value }));
 
   /**
-   * ドラッグの確定。成功したら応答の並びを一覧へ書き戻す (値は secretId ごとに保持しているため
-   * 取り直さない)。HTTP エラーは保存されていないので表示を元の順へ戻し、応答が返らない失敗は
-   * 保存結果が不明なので下書きを残して次の取得でサーバーの順へ合わせる。
+   * ドラッグの確定。成功したら応答の並びを一覧へ書き戻す (値は secretId ごとに保持し取り直さない)。
+   * HTTP エラーは表示を元へ戻し、応答が返らない失敗は下書きを残して次の取得でサーバーへ合わせる。
    */
   const commitOrder = async () => {
     const ids = orderRef.current;

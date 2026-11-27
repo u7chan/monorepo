@@ -7,9 +7,8 @@ import type { FileDownloadCheck, FileListing, FilePreview, FileRename, FileStat,
 export const getFiles = (path = ".") => read<FileListing>(client.api.files.$get({ query: { path } }));
 
 /**
- * 単一ファイルの存在確認（本文は取得しない）。通常ファイルとして実在するときだけ 200 で、404 は不存在、
- * 400 は不正・root 外・通常ファイル以外。502 / 503 はサンドボックス側の失敗で、**実在の確認には使えない**
- * （不存在と混同しない扱いは呼び出し側の `classifyFileRefFailure` が決める）。
+ * 単一ファイルの存在確認 (本文は取得しない)。正常ファイルなら 200、404 は不存在、400 は不正・root 外。
+ * 502 / 503 はサンドボックス側の失敗で実在の確認には使えない (扱いは classifyFileRefFailure が決める)。
  */
 export const statFile = (path: string) => read<FileStat>(client.api.files.stat.$get({ query: { path } }));
 
@@ -54,10 +53,8 @@ export const fileHtmlPreviewUrl = (path: string): string =>
   client.api.files.html[":path{.+}"].$url({ param: { path: encodeFilePathParam(path) } }).toString();
 
 /**
- * ストレージ有効モードの HTML プレビュー URL (別オリジンの iframe の src)。公開オリジン (health の
- * filePreviewOrigin) を優先し、無ければ health のポートから組む (client にポートを焼き込まない)。
- * location.host ではなく hostname + port を組むのは、dev でアプリが Vite の 3000 に居り BFF が別ポートのため
- * (相対ルートはアプリ オリジンに解決されてしまう)。どちらも無ければ URL を作らない。
+ * ストレージ有効時の HTML プレビュー URL (別オリジンの iframe)。公開オリジン、無ければ health の
+ * ポートから組み、どちらも無ければ作らない (dev はアプリと BFF でポートが違うため hostname + port)。
  */
 export const fileStoragePreviewUrl = (path: string, target: { origin?: string; port?: number }): string | undefined => {
   const relative = `/api/files/html/${encodeFilePathParam(path)}`;

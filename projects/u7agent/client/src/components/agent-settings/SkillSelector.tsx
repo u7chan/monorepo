@@ -45,9 +45,8 @@ export const BUILTIN_SKILL_EXPLICIT_NOTE =
   "選んだ組み込みスキルだけを使います。あとから増えた分は自動では選ばれません。";
 
 /**
- * 共通スキルの注記。行に出る「自動起動なし」(`disable-model-invocation` = モデルが自分からは起動しない) とは
- * 別の操作で、スイッチを外すとこのエージェントの会話へ読み込まれなくなることをここで伝える
- * (docs/ui-layout.md)。共通スキルのファイルは変更しない。
+ * 共通スキルの注記。行の「自動起動なし」(`disable-model-invocation`) とは別で、スイッチを外すと
+ * このエージェントの会話へ読み込まれなくなることを伝える (共通スキルのファイルは変えない)。
  */
 export const COMMON_SKILL_SECTION_NOTE =
   "共通スキルは外してもファイルは消えません。このエージェントの会話で使わなくなるだけです。";
@@ -76,9 +75,8 @@ function missingOf(names: string[] | null | undefined, visible: readonly string[
 }
 
 /**
- * エージェント編集のスキルタブ。1 枚のパネルに「組み込み → 共通」の順でスイッチ行を積む。
- * 検索は表示だけを絞り、切替と一括操作の母集合は未絞込の visible 行にする (行が隠れていても、
- * その状態は保存値のまま変えない)。件数も検索中は未絞込で数える。
+ * エージェント編集のスキルタブ。1 枚のパネルに「組み込み → 共通」の順で積む。検索は表示だけを絞り、
+ * 切替と一括操作の母集合・件数は未絞込の visible 行で数える。
  */
 export function SkillSelector({
   builtinSkills,
