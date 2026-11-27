@@ -1,7 +1,6 @@
 /**
- * 入力欄の送信 1 回分。Enter・フォーム submit・送信ボタンはすべてここを通る。
- * 音声の操作中と終了直後の保留中は入口で止め、下書きも定型チップも消さない
- * （ボタンの `disabled` だけに頼ると、別の入口から押せないはずの送信が通る）。
+ * 入力欄の送信 1 回分。Enter・フォーム submit・送信ボタンはすべてここを通る。音声の操作中と終了直後の
+ * 保留中は入口で止め、下書きもチップも消さない (ボタンの disabled だけに頼らない)。
  */
 import { suggestionSendText, suggestionTitleSource } from "./suggestion";
 import { voiceInputComposerBusy, type VoiceInputComposerPhase } from "./voiceInput/composer";

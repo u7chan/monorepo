@@ -1,7 +1,6 @@
 /**
- * CSS の時間値から最大値を ms で返す。`animation-duration` / `transition-duration` の computed 値は
- * カンマ区切りのリストを取り得る (`animation-name` の数だけ値が並ぶ) ため、先頭だけを読むと後ろにある
- * 長い値を取りこぼす (その長さで動いているアニメーションより短い保険タイマーが先に走ってしまう)。
+ * CSS の時間値から最大値を ms で返す。`animation-duration` などの computed 値はカンマ区切りのリストを
+ * 取り得るため、先頭だけを読むと後ろの長い値を取りこぼす (短い保険タイマーが先に走る)。
  */
 export function maxDurationMs(value: string): number {
   let max = 0;

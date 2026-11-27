@@ -1,7 +1,6 @@
 /**
- * main 領域に出す「作業先」を決める純関数。セッションが無ければ作成先 (selectedProjectId)、
- * あればセッションの所属を採り、左バーの groupSessionsByProject と同じ規則で未所属へ寄せる。
- * 一覧の取得前や消えた id では未所属に倒す (一時的な食い違いは許容する。docs/ui-layout.md)。
+ * main 領域に出す「作業先」を決める純関数。セッションが無ければ作成先、あれば所属を採り、
+ * 左バーの groupSessionsByProject と同じ規則で未所属へ寄せる (取得前や消えた id も未所属)。
  */
 import type { Project, SessionSummary } from "../types";
 

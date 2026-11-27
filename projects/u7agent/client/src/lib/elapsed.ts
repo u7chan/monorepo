@@ -17,9 +17,8 @@ export function runElapsedMs({
 }
 
 /**
- * 経過時間の表記 (`1m 5s`)。実行中の状態行では、必ず固定幅のスロット (`elapsed-slot`) に
- * 入れて使う (文字列の幅は秒の桁で変わるため、幅が動く場所に直接置くと状態行が揺れる)。
- * 完了したターンの所要時間 (turnEnd) は静的なのでそのまま使う。秒未満は切り捨てる。locale 非依存。
+ * 経過時間の表記 (`1m 5s`)。実行中の状態行では必ず固定幅のスロット (`elapsed-slot`) に入れる (文字列の
+ * 幅は秒の桁で変わるため、幅が動く場所に置くと状態行が揺れる)。完了したターンの値はそのまま使う。
  */
 export function formatElapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
