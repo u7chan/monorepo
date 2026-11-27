@@ -1,9 +1,6 @@
 /**
- * 会話の引き継ぎ (エージェント / スペースの交代) の純関数。ダイアログの文言と選択の組み立て、実行を
- * 止める理由、引き継ぎ後のチップの導出だけを持つ。
- *
- * チップは会話の状態 (payload の handoff) から導出し、クライアントのメモリには持たない
- * (リロードとスペースの切替をまたいで同じ表示になる)。文面はエージェントの定型プロンプトと同じ形に揃える。
+ * 会話の引き継ぎ (エージェント / スペースの交代) の純関数。ダイアログの文言と選択、実行を止める理由、
+ * 引き継ぎ後のチップの導出だけを持つ (チップは payload の handoff から導出し、メモリに持たない)。
  */
 import type { AgentDef, AgentSuggestion, SessionHandoffState, SessionSummary } from "../types";
 import { sessionBusy } from "./sessionBusy";
@@ -109,9 +106,8 @@ export type SessionHandoffDialogText = {
 };
 
 /**
- * 引き継ぎの確認文言。消えるもの (履歴と未送信) と残るもの (作業フォルダのファイルと添付)、
- * 引き継ぎ後に移動先のスペースへ切り替わることを実行前に示す。プロジェクト所属では、メモが
- * リポジトリ直下にできることと、コミット / 除外の判断が利用者にあることをメモの説明へ足す。
+ * 引き継ぎの確認文言。消えるもの (履歴と未送信) と残るもの (ファイルと添付)、移動先のスペースへ
+ * 切り替わることを実行前に示す (プロジェクト所属ではメモがリポジトリ直下にできることも足す)。
  */
 export function sessionHandoffDialogText(title: string, projectSession = false): SessionHandoffDialogText {
   return {
