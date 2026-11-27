@@ -470,10 +470,8 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
   return (
     <dialog
       ref={dialogRef}
-      /**
-       * onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける。子孫の
-       * dialog の close / cancel も泡立つので、自分の分だけを受ける (受けると内側を閉じた 1 回で閉じる)。
-       */
+      // onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける。子孫の
+      // dialog の close / cancel も泡立つので、自分の分だけを受ける (受けると内側を閉じた 1 回で閉じる)
       onClose={(event) => {
         if (event.target !== event.currentTarget) return;
         props.onClose();
