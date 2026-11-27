@@ -1,7 +1,6 @@
 /**
- * ファイルツリー (FileBrowser) のアイコンの見た目。形と FileKind の分類は icons.tsx / lib/fileKind.ts が持ち、
- * ここは「どう色を載せるか」だけを決める。表示設定なので保存は localStorage の 1 キーに閉じ、
- * 保存先の解決は deviceSettingsStore.ts (docs/file-tree.md)。
+ * ファイルツリーのアイコンの見た目。形と分類は icons.tsx / lib/fileKind.ts が持ち、ここは「どう色を
+ * 載せるか」だけを決める。保存は localStorage の 1 キー (解決は deviceSettingsStore.ts)。
  */
 
 import { deviceSettingsStorage, type DeviceSettingsStorage } from "./deviceSettingsStore";

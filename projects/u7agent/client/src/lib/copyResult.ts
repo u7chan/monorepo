@@ -41,9 +41,8 @@ export type CopyResultController = {
    */
   setOwner(owner: string): void;
   /**
-   * 表示を変えずに、未完了のコピーとタイマーを捨てる (所有部品の unmount)。以後に届いた結果は適用しない。
-   * 破棄フラグは持たず世代だけを進めるので、StrictMode の effect 再実行 (mount → cleanup → mount) でも
-   * その後のコピーは普通に動く
+   * 表示を変えずに、未完了のコピーとタイマーを捨てる (所有部品の unmount)。破棄フラグは持たず世代だけを
+   * 進めるので、StrictMode の effect 再実行でもその後のコピーは普通に動く。
    */
   invalidate(): void;
   /** コピーを始める。完了時、開始より後に所有者が変わった / 無効化された場合は結果を適用しない */

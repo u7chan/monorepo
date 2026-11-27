@@ -1,7 +1,6 @@
 /**
- * 退場アニメの間だけ mount を延ばすための phase。演出そのものは CSS が持ち、ここは
- * 「state が閉じた後も CSS の再生が終わるまで要素を残す」ための寿命だけを決める。
- * 時間の突き合わせは要素の computed から読む (lib/animationEnd.ts) ので、ここに値は持たない。
+ * 退場アニメの間だけ mount を延ばすための phase。演出は CSS が持ち、ここは「閉じた後も再生が終わるまで
+ * 要素を残す」寿命だけを決める (時間は要素の computed から読むので値を持たない)。
  */
 
 export type ExitPhase = "open" | "closing" | "closed";

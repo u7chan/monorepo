@@ -1,9 +1,6 @@
 /**
  * 不具合の切り分け用の診断情報。クライアント側でしか取れない値 (SSE の受信列と reducer の状態) を
- * 1 つの JSON にまとめ、サーバーのダンプ (GET /api/sessions/:id/diagnostics) と突き合わせられる形にする。
- *
- * 本文 (メッセージ / 質問 / 回答) は入れず、件数と長さに落とす。貼り付け先では画面の文脈が失われるため、
- * JSON 自身に種別と注意を書く (docs/diagnostics.md)。
+ * 1 つの JSON にまとめ、サーバーのダンプと突き合わせられる形にする。本文は件数と長さに落とす。
  */
 import type { ChatState } from "./chatState";
 import type { Bubble, ChatHistoryState, ToolCard } from "./chatTypes";
