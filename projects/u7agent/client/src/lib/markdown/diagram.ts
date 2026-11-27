@@ -1,10 +1,6 @@
 /**
- * Mermaid サブセット (flowchart / sequenceDiagram) の解析とレイアウト。
- * DOM / React に依存しない純関数で、解釈できない入力は例外を投げずに ok: false を返す
- * (呼び出し側がソース表示に落とす)。
- *
- * 座標は DOM 計測ではなく文字幅の見積もりから決める。ストリーミング中に再解析しても
- * 同じ入力からは必ず同じモデル (座標・順序まで一致) になることが要件のため。
+ * Mermaid サブセット (flowchart / sequenceDiagram) の解析とレイアウト。同じ入力からは必ず同じ
+ * モデル (座標・順序まで一致) を作る純関数で、解釈できない入力は ok: false (呼び出し側がソース表示)。
  */
 
 /* ===== 上限 (1 フレームの作業量を固定する) ===== */
@@ -519,9 +515,8 @@ function frameOfBoxes(boxes: DiagramBox[]): Frame {
 }
 
 /**
- * 外側レーンを使うエッジ (戻るエッジと、2 ランク以上先へ進むエッジ) のレーンを決める。
- * レーンは全ノードの外側 (ランク軸に直交する向き) に取り、同じ側を使う 2 本目以降は
- * 1 本ずつ外へずらす。入力順に決まるので同じ図からは同じレーンになる。
+ * 外側レーンを使うエッジ (戻るエッジと 2 ランク以上先へ進むエッジ) のレーンを決める。全ノードの
+ * 外側に取り、同じ側の 2 本目以降は 1 本ずつ外へずらす (入力順で決まるので同じ図は同じレーン)。
  */
 function planLanes(
   edges: FlowEdge[],
@@ -616,10 +611,8 @@ function forwardPoints(from: Placed, to: Placed, bands: Band[], horizontal: bool
 }
 
 /**
- * 外側レーンを使う向き (戻るエッジと 2 ランク以上先へ進むエッジ): 出発ノードの下端から
- * ランクの下のすき間へ抜け、全ノードの外側のレーンを通って、行き先ランクの上のすき間から入る。
- * 水平移動はノードの矩形が無い帯だけで行うため、どのノードの矩形も横切らない
- * (行き先が最上段のときは図の上端に専用の帯を取る)。
+ * 外側レーンを使うエッジの経路。出発ノードの下端からランクの下のすき間へ抜け、外側のレーンを
+ * 通って行き先ランクの上から入る (水平移動はノードの矩形が無い帯だけで行う)。
  */
 function detourPoints(from: Placed, to: Placed, bands: Band[], lane: number, horizontal: boolean): DiagramPoint[] {
   const after = bands[from.rank].end + RANK_GAP / 2;
@@ -717,9 +710,8 @@ function labelCandidates(base: LabelPlacement, far: FarBounds, width: number): L
   for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, x: base.x - step * LABEL_STEP });
   for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, y: base.y - step * LABEL_STEP });
   for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, y: base.y + step * LABEL_STEP });
-  // 最後は図形の外側へ退避する。線も図形も無いので、同じ場所に別のラベルが来たときだけ
-  // 次の段へ進む。広いラベルが後続を塞がないよう、間隔は自分の幅から決める
-  // (キャンバスは normalize が広げる)
+  // 最後は図形の外側へ退避し、同じ場所に別のラベルが来たときだけ次の段へ進む。間隔は自分の幅から
+  // 決める (広いラベルが後続を塞がない。キャンバスは normalize が広げる)
   const stride = Math.max(LABEL_STEP, width + LABEL_STEP);
   for (let step = 0; step < LABEL_STEPS; step += 1) {
     for (const shift of [0, LABEL_STEP, -LABEL_STEP]) {

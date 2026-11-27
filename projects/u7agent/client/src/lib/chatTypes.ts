@@ -43,9 +43,8 @@ export type Bubble = {
   /** サーバーが割り当てた assistant 応答ID。同じ応答の delta / ツール / 履歴を対応付ける */
   assistantId?: string;
   /**
-   * 履歴 item のコンテキスト状態。summarized = 要約で置き換わった (薄暗く表示)、
-   * excluded = retry / overflow の context_edit で context から外れた (要約とは区別して表示)。
-   * ライブのバブルは持たない (undefined = 通常表示)。
+   * 履歴 item のコンテキスト状態。summarized は要約で置き換わった (薄暗く表示)、excluded は
+   * context_edit で外れた (区別して表示)。ライブのバブルは持たない (undefined = 通常表示)。
    */
   context?: HistoryContextState;
   role: "user" | "assistant";
@@ -74,9 +73,8 @@ export type Bubble = {
    */
   runId?: string;
   /**
-   * run が終わったターンの所要時間と結末。値の出どころは 2 つある: 履歴 item の `turnEnd` (ターンの
-   * 最後の本文あり応答に載る) と、ライブの `run_end` を写した user バブルの `runDurationMs` /
-   * `runOutcome`。ターン終端の行の有無と文言の唯一の根拠
+   * run が終わったターンの所要時間と結末。履歴 item の `turnEnd` と、`run_end` を写した user
+   * バブルの `runDurationMs` / `runOutcome` が源で、ターン終端の行と文言の唯一の根拠。
    */
   turnEnd?: TurnEnd;
   runDurationMs?: number;
@@ -97,9 +95,8 @@ export type Bubble = {
    */
   confirmed?: boolean;
   /**
-   * 待機キューに積まれている送信 (payload が `queued` として配った / 送信応答が `queued` を返した)。
-   * transcript には出さず、コンポーザー直上のブロック (`components/composer/QueuedSends.tsx`) が担う。
-   * run_start / queue_cleared / run_end / payload で解除する
+   * 待機キューに積まれている送信。transcript には出さず、コンポーザー直上のブロックが担う。
+   * run_start / queue_cleared / run_end / payload で解除する。
    */
   queued?: boolean;
   /**
@@ -118,10 +115,8 @@ export type Bubble = {
    */
   settled?: boolean;
   /**
-   * 本文 item になっていないライブの「ツールだけの host」。確定履歴は本文を持たない応答のツールを
-   * 同ターンの次の表示可能な本文 item へ繰り上げるため、ライブもその本文 item が現れるまでカードを
-   * この 1 枚に溜める (集約は chatReducer の turn host が担う)。本文が届いた時点で同じバブルが
-   * 本文 item になり (`host` を外す)、本文が来ないまま run が終わればツールだけの item として確定する
+   * 本文 item になっていないライブの「ツールだけの host」。本文 item が現れるまでカードを 1 枚に
+   * 溜め、届けば同じバブルが本文 item になる (来なければツールだけの item として確定する)。
    */
   host?: true;
   at?: number;
