@@ -22,9 +22,8 @@ import {
 import type { SharedContentResponse } from "../types";
 
 /**
- * 設定 → 共有 → 共有コンテンツ の一覧。共有ダイアログの `useSharedContents` とは別物で、
- * 会話では絞らず、受付 1 件の追跡もしない（一覧全体を状態で読み直す）。
- * 一覧の取得失敗は `failed`、1 件の操作失敗は `error` に分ける。どちらも BFF の固定文言をそのまま持つ。
+ * 設定 → 共有 → 共有コンテンツ の一覧。共有ダイアログの `useSharedContents` とは別物で、会話では
+ * 絞らず受付 1 件の追跡もしない。一覧の失敗は `failed`、1 件の失敗は `error` に分ける。
  */
 export interface SharedContentsManagerState {
   items: SharedContentResponse[];
@@ -177,9 +176,8 @@ export function useSharedContentsManager() {
   );
 
   /**
-   * 一括停止。対象は確認した時点の id / 名前で固定し、1 件ずつ順に止める。
-   * 1 件の失敗で残りを止めない（部分失敗を許し、最後に一覧を取り直して実態へ合わせる）。
-   * 途中の一覧取得は操作前の状態を返し得るため、各操作の成功で通し番号を進めて捨てる。
+   * 一括停止。対象は確認した時点の id / 名前で固定し、1 件ずつ止める (1 件の失敗で残りを止めない)。
+   * 途中の一覧は操作前を返し得るため、各操作の成功で通し番号を進めて捨てる。
    */
   const stopAll = useCallback(
     async (targets: readonly Pick<SharedContentResponse, "id" | "name">[], excluded: number): Promise<void> => {
@@ -255,9 +253,8 @@ export function useSharedContentsManager() {
   );
 
   /**
-   * サムネイルの保存。公開状態を見ないので、公開中でも受け付ける（行の他の操作は止めない）。
-   * 保存より前に発行した一覧で新しい版を上書きしないよう、応答を適用する前に通し番号を進める。
-   * 戻り値はダイアログが失敗の理由をその場で出すために使う（行の `error` にも残す）。
+   * サムネイルの保存。公開状態を見ないので公開中でも受け付ける。保存より前に発行した一覧で新しい版を
+   * 上書きしないよう、応答を適用する前に通し番号を進める (戻り値はダイアログの失敗表示に使う)。
    */
   const setThumbnail = useCallback(
     async (id: string, bytes: Uint8Array): Promise<{ ok: boolean; message?: string }> => {
