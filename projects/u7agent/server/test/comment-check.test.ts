@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { commentsOf, isOverLong, jsxTextComments } = await import(
+const { commentsOf, inlineDocComments, isOverLong, jsxTextComments } = await import(
   new URL("../../scripts/comment-check.mjs", import.meta.url).href
 );
 
@@ -99,4 +99,38 @@ test("閉じ括弧の後ろでも、次が子要素なら JSX の子とみなす
     ");",
   ].join("\n");
   assert.deepEqual(jsxTextComments(jsx), [6]);
+});
+
+test("インラインの /** を検出し、宣言の JSDoc と JSX の子は除く", () => {
+  assert.deepEqual(inlineDocComments("function A() {\n  /** a */\n  useEffect(() => {});\n}"), [2]);
+  assert.deepEqual(inlineDocComments("const x = (\n  /** a */\n  <span />\n);"), [2]);
+  assert.deepEqual(inlineDocComments("<div\n  /** a */\n  toolbar={\n"), [2]);
+  assert.deepEqual(inlineDocComments("/** a */\nexport function A() {}"), []);
+  assert.deepEqual(inlineDocComments("type A = {\n  /** a */\n  b?: string;\n};"), []);
+});
+
+test("JSX の子の /** は inlineDocComments では二重に報告しない", () => {
+  const jsx = "const el = (\n  <div>\n    /** a\n     b */\n    <span />\n  </div>\n);";
+  assert.deepEqual(jsxTextComments(jsx), [3]);
+  assert.deepEqual(inlineDocComments(jsx, true), []);
+});
+
+test("インデント 2 の JSX の子も検出する", () => {
+  assert.deepEqual(jsxTextComments("const el = (\n<div>\n  /** a\n   b */\n  <span />\n</div>\n);"), [3]);
+});
+
+test("インラインの /** を直後の形ごとに検出する", () => {
+  assert.deepEqual(inlineDocComments("const f = () =>\n  /** a */\n  (\n    1\n  );"), [2]);
+  assert.deepEqual(inlineDocComments("function A() {\n  /** a */\n  return 1;\n}"), [2]);
+  assert.deepEqual(inlineDocComments("function A() {\n  /** a */\n  {\n  }\n}"), [2]);
+});
+
+test("2 行目以降の宣言の JSDoc は検出しない", () => {
+  assert.deepEqual(inlineDocComments("const a = 1;\n/** doc */\nfunction A() {}\n"), []);
+  assert.deepEqual(inlineDocComments("const a = 1;\n/** doc */\nconst b = 2;\n"), []);
+});
+
+test(".ts では JSX の子の除外を効かせない", () => {
+  assert.deepEqual(inlineDocComments("function f() {\n}\n  /** a */\n  {\n}"), [3]);
+  assert.deepEqual(inlineDocComments("function f() {\n}\n  /** a */\n  {\n}", true), []);
 });

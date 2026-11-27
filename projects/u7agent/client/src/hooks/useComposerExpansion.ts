@@ -93,10 +93,8 @@ export function useComposerExpansion({
     setExpanded(false);
   }, [sending]);
 
-  /**
-   * 退場アニメの間の Escape は自分で消費する。2 回目の cancel は cancelable: false で止められず、
-   * UA が即座に閉じると全画面の寸法のまま戻るため、keydown の既定動作ごと止める (設定へ移るときは通す)。
-   */
+  // 退場アニメの間の Escape は自分で消費する。2 回目の cancel は cancelable: false で止められず、
+  // UA が即座に閉じると全画面の寸法のまま戻るため、keydown の既定動作ごと止める (設定へ移るときは通す)
   useEffect(() => {
     if (expandPhase !== "closing" || !visible) return;
     const onKeyDown = (event: WindowEventMap["keydown"]) => {
