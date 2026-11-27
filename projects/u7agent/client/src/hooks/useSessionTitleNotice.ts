@@ -11,9 +11,8 @@ import type { SessionTitleSummary } from "../types";
 export type { SessionTitleNoticeState } from "../lib/sessionTitleNotice";
 
 /**
- * 開いている会話の AI 要約が成功 / 失敗した瞬間だけ、チャット上に 1 回のお知らせを出す。
- * 会話を開いた時点で既に終わっている試行は出さない (履歴を遡るたびに再表示しない)。
- * 実行中 (pending) とスキップは出さず、done / failed への遷移だけを拾う。
+ * 開いている会話の AI 要約が成功 / 失敗した瞬間だけ、チャット上に 1 回のお知らせを出す。開いた時点で
+ * 既に終わっている試行は出さず (履歴を遡るたびに再表示しない)、done / failed への遷移だけを拾う。
  */
 export function useSessionTitleNotice({
   sessionId,

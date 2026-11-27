@@ -49,10 +49,8 @@ export type SessionFilesFace = {
 };
 
 /**
- * 作業フォルダの面 (desktop の右パネル / singleColumn の全画面シート) と、その面ローカルの状態。
- * 開閉は保存せず、起動時は閉。閉じる契機 (設定ページへの出入り / root の変更 / desktop への復帰 /
- * セッション切替 / チャット以外への移動) は、前の描画の値と比べて描画中に同期する。
- * `showModal()` は子の Effect で親より先に走るため、Effect で閉じると 1 フレーム開いたままになる。
+ * 作業フォルダの面と、その面ローカルの状態。開閉は保存せず起動時は閉。閉じる契機は前の描画の値と
+ * 比べて描画中に同期する (`showModal()` は子の Effect が親より先に走り、1 フレーム開いたままになる)。
  */
 export function useSessionFilesFace({
   singleColumn,

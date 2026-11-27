@@ -20,10 +20,8 @@ export interface SettingsResourceOptions<TResponse> {
 }
 
 /**
- * 設定資源（GET で読む設定と変更系 API）の共通骨格。settings / note / saving / reloading の 4 state と、
- * 「進行中の読み込みの応答を、いま適用した応答で上書きさせない」ガードを 1 箇所に置く。
- * `options` の関数は deps に入るため、呼び出し側は module 定数か `useCallback` で渡す
- * （render ごとに ident が変わると reload が毎 render 走る）。
+ * 設定資源の共通骨格。settings / note / saving / reloading の 4 state と、「進行中の読み込みの応答を
+ * いま適用した応答で上書きさせない」ガードを 1 箇所に置く (`options` は module 定数か useCallback で)。
  */
 export function useSettingsResource<TResponse, TAction extends string>(options: SettingsResourceOptions<TResponse>) {
   const { defaultNote, load, loadErrorLabel, onApply } = options;

@@ -15,9 +15,8 @@ import type { ThinkingLevel, TitleSummarySettingsResponse, TitleSummaryTestRespo
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
- * 設定 → 会話タイトルの state と操作。GET はこの画面を開いたときだけ取り、
- * 変更系の応答は GET と同じ形なので、そのまま次の状態にできる。
- * モデル未選択のまま On にできない規則はサーバーが正で、ここは保存前に同じ理由を出す。
+ * 設定 → 会話タイトルの state と操作。GET はこの画面を開いたときだけ取り、変更系の応答は GET と同じ
+ * 形なのでそのまま次の状態にする。モデル未選択で On にできない規則はサーバーが正 (保存前に同じ理由を出す)。
  */
 export function useSessionTitleSettings() {
   const { settings, note, saving, reloading, reload, runMutation, setNote } = useSettingsResource<
