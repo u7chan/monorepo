@@ -12,7 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scanTargets = ["client/src"];
 
 /** 現在の実測値の ratchet。減らすのは自由で、増やすときは diff に出してレビューで合意する。 */
-const LONG_COMMENT_BUDGET = 435;
+const LONG_COMMENT_BUDGET = 429;
 
 /** prose として数えない行。参照ディレクティブと lint / format の制御は長さの対象外。 */
 const directivePattern = /^\/\/\s*(?:oxlint|eslint|@ts-|prettier-|#region|#endregion)/;
