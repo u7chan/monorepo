@@ -1,7 +1,6 @@
 /**
- * 自動再試行の状態行文言。残り時間は受信時に出した `retryAt - serverNow` から、
- * 受信後のブラウザ経過分だけを引く (ブラウザ時計とサーバー時刻を直接比較しない。
- * 過去イベントのリプレイでも待機を延長しない)。
+ * 自動再試行の状態行文言。残り時間は受信時の `retryAt - serverNow` からブラウザ経過分だけを引く
+ * (ブラウザ時計とサーバー時刻を比較せず、過去イベントのリプレイでも待機を延長しない)。
  */
 import type { RunRetryState } from "../types";
 
@@ -29,10 +28,8 @@ export function retryActivityText(retry: RunRetryState | undefined, remaining: n
 }
 
 /**
- * 状態行に出す活動の文言と由来。再試行の待機 / 再実行の文言で上書きしている間は run の由来
- * (SSE `status` の `state`) を渡さない。演出 (`activity-shimmer`) は run 自身の「考え中…」
- * に当てるもので、再実行の試行中 (`phase: "retrying"`) は `state` が `thinking` でも行に
- * 出ているのは「再実行中（1/2）」なので、文言と由来は同じ経路から決める。
+ * 状態行に出す活動の文言と由来。再試行 / 再実行の文言で上書きしている間は run の由来を渡さない
+ * (演出は run 自身の「考え中…」に当てる。文言と由来は同じ経路から決める)。
  */
 export function activityDisplay(
   activity: string,
