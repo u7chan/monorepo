@@ -26,10 +26,8 @@ export type FileTreeWidthBounds = {
 };
 
 /**
- * 幅の下限 / 上限。`containerWidth` は本文の `@container` の `clientWidth` (整数)。
- * 未計測 (0 以下) は null を返す (既定も上限もコンテナ幅に依存するため、推測しない)。
- * 上限は `max(min, ...)` で clamp するので、コンテナ < 672px (= 上下 2 段) と `@2xl` の
- * 境界ちょうどでは min == max になり、その帯ではハンドルを出さない (canResizeFileTree)。
+ * 幅の下限 / 上限。`containerWidth` は本文の `@container` の clientWidth で、未計測 (0 以下) は null を
+ * 返す (推測しない)。容器が 672px 以下では min == max になり、その帯ではハンドルを出さない。
  */
 export function fileTreeWidthBounds(containerWidth: number): FileTreeWidthBounds | null {
   const container = Math.round(containerWidth);
@@ -56,10 +54,8 @@ export function clampFileTreeWidth(width: number, bounds: FileTreeWidthBounds): 
 }
 
 /**
- * 表示幅。未指定 (null) はコンテナ幅に追随する既定 (1/3)。未計測 (0 以下) では上限が
- * 決まらないため clamp せず、未指定なら下限、保存値があればその値をそのまま使う。
- * `--file-tree-width` には常に px を入れる (未定義の var() を渡すと `@2xl:w-(--file-tree-width)`
- * が width:auto へ落ち、flex-none のまま内容幅まで広がってプレビューを潰す)。
+ * 表示幅。未指定 (null) はコンテナ幅の 1/3 に追随し、未計測 (0 以下) では clamp しない (下限または
+ * 保存値)。`--file-tree-width` には常に px を入れる (未定義だと width:auto へ落ちてプレビューを潰す)。
  */
 export function fileTreeWidth(requested: number | null, containerWidth: number): number {
   const bounds = fileTreeWidthBounds(containerWidth);
