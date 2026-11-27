@@ -28,15 +28,13 @@ export type ChatState = {
   currentAssistantId: number | null;
   toolBubbleIds: Record<string, number>;
   /**
-   * 直近 run のツールカード (toolCallId -> ToolCall)。ライブの tool_start / tool_end と resync の
-   * payload.run.toolCalls が正で、履歴ページにまだ投影されていないカードを補完する元データ。
-   * runEnd では消さない (終了後に遅れて適用される履歴ページへ補うため)
+   * 直近 run のツールカード (toolCallId -> ToolCall)。履歴ページに未投影のカードを補う元データで、
+   * runEnd でも消さない (終了後に遅れて適用されるページへ補うため)。
    */
   runTools: Record<string, ToolCall>;
   /**
-   * 表示 item にならない assistant 応答の時刻 / モデル / usage / 応答時間 (assistantId 引き)。
-   * payload の `assistantMeta` と、ライブの `assistant_end` が対象バブルを見つけられなかった応答の
-   * 確定モデルが入る。本文なしの未回答 ask_user のために `runTools` から空のバブルを合成するときだけ使う
+   * 表示 item にならない assistant 応答の meta (assistantId 引き)。`assistant_end` が対象バブルを
+   * 見つけられなかった応答と、本文なし ask_user の空バブル合成だけが読む。
    */
   assistantMeta: Record<string, AssistantMeta>;
   /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
@@ -60,9 +58,8 @@ export type ChatState = {
    */
   compactionStartedAt?: number;
   /**
-   * run が終わった回数。run_end と、running を抜けた resync で進む。値そのものは表示に使わず、
-   * チャットの右パネル (作業フォルダ) が取り直しの合図に使う (描画間の runStatus の差では、
-   * run_start と run_end が同じバッチで届いたときに running を観測できない)。
+   * run が終わった回数。表示には使わず、右パネル (作業フォルダ) の取り直しの合図だけに使う
+   * (同じバッチの run_start / run_end では running を観測できないため)。
    */
   runEndSeq: number;
   /**
@@ -88,9 +85,8 @@ export type ChatState = {
   queueDepth: number;
   activity: string;
   /**
-   * 活動表示の由来 (SSE `status` の state)。状態そのものではなく表示の補助で、
-   * 「モデルがトークンを生成中」(thinking) だけを活動ラベルの演出に使う。
-   * 文言 (activity) で判定すると BFF の文面変更で演出が消えるため、サーバーが配る state を持つ
+   * 活動表示の由来 (SSE `status` の state)。文言で判定すると BFF の文面変更で演出が消えるため、
+   * サーバーが配る state を持ち、thinking のときだけ活動ラベルに光を流す。
    */
   activityState?: string;
   /**
@@ -122,9 +118,8 @@ export type ChatState = {
   /** 進行中の自動再試行。resync / run_retry で復元し、run_end で消える */
   retry?: RunRetryState;
   /**
-   * 最後に失敗したランの分類コードと文言。`runStatus === "error"` のときだけ持ち
-   * (停止と例外が同時の `run_end` は `stopped` になる)、カードを出す場合は活動欄から文言を外す。
-   * 失敗の文言は `run.error` (BFF が合成した 1 文) をそのまま使う
+   * 最後に失敗したランの分類コードと文言。`runStatus === "error"` のときだけ持ち、失敗の文言は
+   * `run.error` (BFF が合成した 1 文) をそのまま使う (停止と例外が同時なら stopped)。
    */
   runError?: RunErrorInfo;
   /** retry の残り時間 (受信時点)。retryAt - serverNow で出し、ブラウザ時計は受信後の経過だけに使う */
@@ -156,23 +151,20 @@ export type ChatState = {
    */
   toolTargetAssistantId?: number;
   /**
-   * 本文 item を引き取った host の応答ID。resyncHistory は履歴 item からバブルを組み直すため、
-   * entryId 付きになった host は live の突き合わせ対象から外れ、印 (host) が写らない。run の終端まで
-   * これらを host として戻し、再構築の後に実行中の行とコピーを出さない (1 run に複数の host が並び得る)
+   * 本文 item を引き取った host の応答ID。履歴の再構築で entryId 付きになると印が写らないため、
+   * run の終端まで host として戻す (1 run に複数の host が並び得る。docs/frontend.md)。
    */
   liveHostAssistantIds: string[];
   /** 実行中の thinking 末尾 (live 専用)。SSE の `status.thinking` だけが入れる */
   thinkingText?: string;
   /**
-   * `liveHostAssistantIds` を採用した run の id。切断中に前の run が終わり次の run が始まると
-   * (`run_start` のリプレイなしで) `resync` だけが届くため、run が変わったら前ターンの host を
-   * 復元しない。どちらかが不明 (run を持たない payload) なときは run の変更を判定できないので保持する
+   * `liveHostAssistantIds` を採用した run の id。切断中に run が変わると `run_start` のリプレイが
+   * 無いため、run が違えば戻さない (どちらか不明なら判定できないので保持する)。
    */
   liveHostRunId?: string;
   /**
-   * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
-   * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
-   * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
+   * run_start で観測した run id -> 展開済みの本文。送信応答が run_start より遅れて届いたとき、
+   * エコーを注記込み / `/skill:` 展開済みへ差し替える (直近数件だけ持ち、対応が取れたら消す)。
    */
   runPrompts: Record<string, string>;
   /**
@@ -181,9 +173,8 @@ export type ChatState = {
    */
   runInitialSendIds: Record<string, string>;
   /**
-   * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げるライブ専用の演出だけに
-   * 使い、終端は DOM 側 (`startFlashEnd`) が受ける。run_end / queue_cleared / resync でも落とし、
-   * 演出が残らないようにする
+   * 待機列の先頭が実行に移った直後の run id。リングの演出だけに使い、終端は DOM 側 (`startFlashEnd`)
+   * が受ける (run_end / queue_cleared / resync でも落とす)。
    */
   startingRunId?: string;
 };
@@ -205,9 +196,10 @@ export type ChatAction =
   | { type: "historyUnsupported"; payload?: SessionPayload }
   | { type: "runStart"; runId?: string; initialSendId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
-  /** 送信応答。未対応付けの最古のエコーへ送信IDを結び付け、実行へ割り当て済みなら run id も写す。
-   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) で、
-   * `stateSeq` (要求時の世代) が現在と一致するときだけ適用する */
+  /**
+   * 送信応答。未対応付けの最古のエコーへ送信IDを結び付け、実行へ割り当て済みなら run id も写す
+   * (queuePosition は要求時の stateSeq が現在と一致するときだけ適用する)。
+   */
   | { type: "echoSendId"; sendId: string; runId?: string; queuePosition?: number; stateSeq?: number }
   /** 未送信メッセージの再送を開始する (保存済みの本文をサーバーが使う)。pending エコーへ戻す */
   | { type: "resendUnsent"; sendId: string }
