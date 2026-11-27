@@ -23,11 +23,8 @@ import { SettingsTabs } from "../SettingsTabs";
 import { SkillDetailPanel, type SkillBodyState, type SkillDetailTab } from "./SkillDetailPanel";
 
 /**
- * スキル詳細。本文 / ファイル / 使用中 の 3 タブで、説明は本文タブの先頭に全文を出す。
- * 共通スキルは編集内容 (`detail`) を渡すと、その本文と保存可否をそのまま表示する (編集中の内容と一致させる)。
- * 組み込みは一覧の `body` をそのまま使い、それ以外はファイルプレビューから取り直す
- * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルタブは root を導けるスキルだけに出す
- * (組み込み・仮想パス・絶対パス・親参照は出さない)。使用中は読み取り専用。
+ * スキル詳細。本文 / ファイル / 使用中 の 3 タブで、説明は本文タブの先頭に全文を出す。組み込みは一覧の
+ * `body` を使い、それ以外はプレビューから取り直す。ファイルタブは root を導けるスキルだけに出す。
  */
 export function FileSkillPanel({
   skill,

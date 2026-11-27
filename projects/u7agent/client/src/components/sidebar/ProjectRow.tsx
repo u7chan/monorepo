@@ -66,10 +66,8 @@ export function ProjectRow({
         </button>
         <RowMenu name={project.name} actions={projectRowActions()} onSelect={(kind) => handlers[kind]()} />
       </div>
-      {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
-          初めて開くプロジェクトも 0fr から伸びる。行の間隔 (mt-1) も遷移の内側に置く: 外側の gap は
-          畳んだ入れ物 (高さ 0) にも空く。閉じている間は inert にして、見えない行をフォーカスと読み上げの
-          対象に残さない (FileBrowser の枝と同じ) */}
+      {/* 開閉は高さの遷移で見せる (.tree-fold)。入れ物は開く前から置くので初めて開くプロジェクトも 0fr から
+          伸び、行の間隔も遷移の内側に置く (外側の gap は畳んだ入れ物にも空く)。閉じている間は inert */}
       <div className="tree-fold ml-3" data-open={open} inert={!open}>
         <div>
           <div className="project-fold-rows mt-1 grid gap-1 border-l border-line pl-1.5">

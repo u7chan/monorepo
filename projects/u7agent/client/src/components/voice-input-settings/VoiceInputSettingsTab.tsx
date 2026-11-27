@@ -45,9 +45,8 @@ export type VoiceInputSettingsTabProps = {
 };
 
 /**
- * 設定 → 音声入力の本文。キーの状態と登録・変更・削除、固定モデル、課金なしの疎通確認、
- * 録音を 1 回試すプレイグラウンドを 1 面にまとめる。入力欄への挿入は Composer 側
- * (`useComposerVoiceDraft.ts`) が持ち、この画面には置かない。
+ * 設定 → 音声入力の本文。キーの状態と登録・変更・削除、固定モデル、課金なしの疎通確認、録音を 1 回
+ * 試すプレイグラウンドを 1 面にまとめる (入力欄への挿入は Composer 側が持つ)。
  */
 export function VoiceInputSettingsTab({
   settings,

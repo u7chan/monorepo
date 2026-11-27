@@ -42,9 +42,8 @@ export type SharedThumbnailDialogProps = {
 };
 
 /**
- * 共有物のサムネイルを選び、16:10 で切り抜いて保存するダイアログ。
- * 位置はドラッグ / タッチ / 矢印キー、倍率はスライダーか +/- で調整でき、保存と解除も同じ面で行う。
- * 未保存で閉じれば既存の画像は変わらない（保存は押したときだけ送る）。枠へのドロップもこの面へ合流させる。
+ * サムネイルを選び 16:10 で切り抜いて保存するダイアログ。位置はドラッグ / タッチ / 矢印キー、倍率は
+ * スライダーか +/- で調整する。未保存で閉じれば既存の画像は変わらない (ドロップもこの面へ合流)。
  */
 export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear }: SharedThumbnailDialogProps) {
   const confirm = useConfirm();
