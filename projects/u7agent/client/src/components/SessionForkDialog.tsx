@@ -23,8 +23,7 @@ export type SessionForkDialogProps = {
 
 /**
  * 分岐先のエージェントを選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の 2 種なので、
- * 選択を持つこの画面は `ProjectDialog` / `SessionHandoffDialog` と同じ専用部品にし、`App` が
- * 制御コンポーネントとして mount する。モーダルの標準挙動 (背面の inert 化 / Tab の拘束 / Escape) に任せる。
+ * 選択を持つ画面は専用部品にして `App` が mount する (モーダルの標準挙動と焦点の復帰に任せる)。
  */
 export function SessionForkDialog({
   text,

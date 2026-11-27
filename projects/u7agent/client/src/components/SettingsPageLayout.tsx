@@ -28,11 +28,8 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
 };
 
 /**
- * 設定ページの共通の外装。元の full screen dialog をやめてメイン列に置くため、
- * ヘッダ + 本文 (+ ノート) を viewport の高さいっぱいに組む。
- * 取得と保存は各ページの hook が持ち (開いたときに取得し、再読み込みはそのページの設定だけを
- * 取り直す)、この外装と `*View` は描画だけを行う。例外は facade (`useU7Agent`) が起動時に読む 3 つ
- * (通知の設定・ダウンロードの除外名・公開の除外名) で、これらは設定ページを開く前から state がある。
+ * 設定ページの共通の外装。ヘッダ + 本文 (+ ノート) を viewport の高さいっぱいに組む。取得と保存は
+ * 各ページの hook が持ち、この外装と `*View` は描画だけを行う (facade の 3 つは例外)。
  */
 export function SettingsPageLayout({
   eyebrow,

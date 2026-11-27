@@ -29,9 +29,8 @@ export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
 };
 
 /**
- * select のドロップダウン矢印はブラウザが位置を決めるため右端に寄りすぎる。矢印だけ自前の chevron に
- * 置き換えて余白を揃える。幅と伸縮は wrapper が担い、select は w-full で wrapper に追従する。
- * 見た目は density と singleColumn が持ち、className は layout (位置・幅) のためだけに開けている。
+ * select のドロップダウン矢印はブラウザが位置を決めるため、自前の chevron に置き換えて余白を揃える。
+ * 幅と伸縮は wrapper が担い、select は w-full で追従する (className は layout のためだけに開けている)。
  */
 export function SelectField({
   wrapperClassName,

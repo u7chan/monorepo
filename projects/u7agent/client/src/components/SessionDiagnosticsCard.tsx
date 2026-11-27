@@ -1,12 +1,6 @@
 /**
- * 設定 → ランタイム（`/settings/runtime/diagnostics`）のセッション診断カード。会話を 1 つ選び、サーバーのダンプと
- * このタブのクライアント状態を 1 つの JSON としてコピー / 生ログのダウンロードができる。
- *
- * 取得と操作の state は面（`DiagnosticsTab`）が持ち、このカードは渡された状態を描くだけにする。再読み込みは
- * 面のツールバーへ出し、対象と report をタブと共有するため（docs/diagnostics.md）。
- *
- * チャットが壊れていても (設定ページはチャットを mount したまま重ねる) ここから取れることを、
- * 「壊れた UI でも取れる」の本線にする (docs/diagnostics.md)。
+ * 設定 → ランタイムのセッション診断カード。会話を 1 つ選び、サーバーのダンプとクライアント状態を
+ * 1 つの JSON としてコピー / ダウンロードする (state は DiagnosticsTab。壊れた UI でもここから取れる)。
  */
 import {
   DIAGNOSTICS_CLIENT_MISSING,

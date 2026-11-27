@@ -5,9 +5,8 @@ import { useRef, type ReactNode } from "react";
 import { CopyButton } from "./chat/CopyButton";
 
 /**
- * 設定画面の「テスト」の出力。チャットのコードブロック (`md-code`) と同じ組み方の枠 1 枚に、
- * ヘッダ右のコピーを添える。成功 / 失敗は呼び出し側の 1 行が持ち、ここは枠と本文だけを持つ
- * (Card in Card を作らない)。
+ * 設定画面の「テスト」の出力。チャットのコードブロックと同じ組み方の枠 1 枚に、ヘッダ右のコピーを
+ * 添える。成功 / 失敗は呼び出し側の 1 行が持ち、ここは枠と本文だけを持つ (Card in Card を作らない)。
  */
 export function OutputPanel({
   label,

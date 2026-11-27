@@ -37,8 +37,7 @@ export type SessionHandoffDialogProps = {
 
 /**
  * 引き継ぎ先を選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の 2 種なので、
- * 選択とトグルを持つこの画面は `ProjectDialog` と同じ専用部品にし、`App` が制御コンポーネントとして mount する。
- * モーダルの標準挙動 (背面の inert 化 / Tab の拘束 / Escape での終了) と焦点の復帰に任せる。
+ * 選択とトグルを持つ画面は専用部品にして `App` が mount する (標準挙動と焦点の復帰に任せる)。
  */
 export function SessionHandoffDialog({
   text,
