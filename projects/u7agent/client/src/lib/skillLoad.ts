@@ -49,9 +49,8 @@ function badgeOf(load: SkillLoad, card: ToolCard | undefined): SkillBadge {
 }
 
 /**
- * バブル id ごとのバッジ。表示位置は履歴 (ChatMessage.skillLoads) を正とし、履歴に無いライブ分だけを
- * カードのあるバブルへ出す。resync では run の toolCall が最後のバブルへまとまって付くため、
- * 同じ toolCallId の重複排除は 1 つのバブルではなく全バブル横断で行う。
+ * バブル id ごとのバッジ。表示位置は履歴を正とし、履歴に無いライブ分だけをカードのあるバブルへ出す。
+ * resync では toolCall が最後のバブルへまとまるため、重複排除は全バブル横断で行う。
  */
 export function skillBadgesOf(bubbles: readonly Bubble[]): Map<number, SkillBadge[]> {
   const cards = new Map<string, ToolCard>();
@@ -74,9 +73,8 @@ export function skillBadgesOf(bubbles: readonly Bubble[]): Map<number, SkillBadg
 }
 
 /**
- * スキル読み込みは入出力を持つ操作ではないのでバッジ側で見せ、ask_user は専用カードで見せる。
- * どちらもツール履歴の件数・サマリー・コピー本文からは外す (コピー本文の #N を UI の行番号と
- * 一致させ続けるため、表示とコピーで同じ関数を通す)。
+ * スキル読み込みはバッジ、ask_user は専用カードで見せる。どちらもツール履歴の件数・サマリー・コピー
+ * 本文からは外す (コピー本文の #N を UI と一致させるため、表示とコピーで同じ関数を通す)。
  */
 export function nonSkillToolCards(cards: readonly ToolCard[]): ToolCard[] {
   return cards.filter((card) => !card.skill && !card.questions?.length);

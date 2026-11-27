@@ -1,12 +1,6 @@
 /**
  * 一覧取得の状態と要求の採否。React 非依存の制御 module として `useSessions` が 1 つだけ所有し、
- * 初回未取得 / 取得中 / 成功 / 失敗と最終成功時刻を区別する。前回の一覧は `useSessions` が保持し、
- * ここは「どの応答を採用するか」と「取得中か」だけを持つ (0 件の成功と未取得を混同しないため)。
- *
- * - **進行中の要求があれば共有する。** 4 秒ポーリング / SSE の再取得 / 画面を開いたときの取り直し /
- *   再読み込みが重なっても GET を積み上げない (遅い応答でも初回成功が追い越されて捨てられない)
- * - `pending` は飛んでいる要求が 1 つでもあれば真。破棄された要求の完了でも必ず解除する
- * - `invalidate` は進行中の要求をまとめて失効させる (スペース切替 / unmount 後の応答を適用しない)
+ * 初回未取得 / 取得中 / 成功 / 失敗を区別する。進行中の要求は共有し、0 件の成功と未取得を混同しない。
  */
 export type SessionsFetchSnapshot = {
   /** 初回の取得に成功したか。一度でも成功したら真のまま (`sessionsLoaded` の既存契約) */
@@ -38,9 +32,8 @@ export type SessionsFetch<T> = {
   snapshot(): SessionsFetchSnapshot;
   subscribe(listener: () => void): () => void;
   /**
-   * 一覧を取り直す。進行中の要求があれば同じ Promise を返し、新しい GET は出さない
-   * (`supersede` のときは失効させてから新しい GET を出す)。
-   * 成否は戻り値で返す (失敗・失効は null)。適用は `apply` が 1 回だけ行う。
+   * 一覧を取り直す。進行中の要求があれば同じ Promise を返して新しい GET を出さず (`supersede` のときは
+   * 失効させてから出す)、成否は戻り値で返す (適用は `apply` が 1 回だけ)。
    */
   load(loader: SessionsFetchLoader<T>, options?: SessionsFetchLoadOptions): Promise<T | null>;
   /** 進行中の要求を失効させる (以後の応答は適用しない) */

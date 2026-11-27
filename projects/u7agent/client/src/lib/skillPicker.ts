@@ -1,7 +1,6 @@
 /**
  * チャットのスキルポップアップの共通部。幅・高さの上限だけを持ち、位置の計算は native popover 共通の
- * `client/src/lib/popoverPlacement.ts` に任せる (描画と popover の操作は
- * `client/src/components/composer/SkillPicker.tsx`)。Model / Effort のポップアップも同じ位置計算を使う。
+ * `lib/popoverPlacement.ts` に任せる (Model / Effort も同じ計算を使う)。
  */
 
 import {
@@ -30,9 +29,8 @@ export function skillPickerWidth(viewportWidth: number): number {
 }
 
 /**
- * 開く向きと高さの上限。上に開くのが既定で、上に入らなければ下へ倒す。上限は「設定した上限」
- * 「viewport の比」「そちら側の空き」の最小にする (そちら側でスクロールさせ、viewport の外へは
- * み出させない)。
+ * 開く向きと高さの上限。上に開くのが既定で、入らなければ下へ倒す。上限は「設定した上限」「viewport の
+ * 比」「そちら側の空き」の最小にする (その側でスクロールさせ、viewport の外へはみ出させない)。
  */
 export function skillPickerLayout(
   anchor: SkillPickerRect,

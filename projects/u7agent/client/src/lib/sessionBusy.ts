@@ -1,7 +1,6 @@
 /**
- * 会話が実行中かどうかの判定を 1 か所に置く。BFF の `SessionStore.isBusy`（`server/src/sessions.ts`）と
- * 同じ集合（実行 / キュー待ち / 圧縮中）で、終端（`completed` / `stopped` / `error`）と `idle` は false。
- * 同じ 3 値判定を画面ごとに書き分けると、集合が変わったときに片側だけ追随しない経路が残る。
+ * 会話が実行中かどうかの判定を 1 か所に置く。BFF の `SessionStore.isBusy` と同じ集合 (実行 / キュー待ち /
+ * 圧縮中) で、終端と `idle` は false。画面ごとに書き分けると片側だけ追随しない経路が残る。
  */
 import type { RunStatus, SessionSummary } from "../types";
 
@@ -13,10 +12,8 @@ export function sessionBusy(runStatus: string): boolean {
 type WorkdirSession = Pick<SessionSummary, "sessionId" | "projectId" | "status">;
 
 /**
- * 公開元と同じ作業フォルダを共有する他会話が実行中か。プロジェクト会話は同じ cwd を共有する。
- * 一覧には cwd が載らないため、ここは `projectId` で兄弟を探す。プロジェクト登録を解除した会話
- * （`projectCwd` は残り `projectId` が消える）は見つけられないが、その場合も受付は BFF の
- * `busyInWorkdir`（cwd で判定）が 409 で止める。ここは押す前に理由を出すための先回り。
+ * 公開元と同じ作業フォルダを共有する他会話が実行中か。一覧に cwd が載らないので `projectId` で兄弟を
+ * 探す (登録解除した会話は見つけられないが、受付は BFF が 409 で止める。ここは先回り)。
  */
 export function siblingRunBusy(input: {
   sessionId: string;
