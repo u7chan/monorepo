@@ -1,14 +1,6 @@
 /**
- * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
- * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/activity` は全スペース横断の
- * 実行状況、`/settings/<section>` は設定の各画面
- * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (SETTINGS_TABS)、
- * `/s/<sessionId>` はチャット + URL が指定する会話。
- * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
- * パスなし) を返す。
- * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
- * 確定した選択の URL には所属スペースを載せ直す (withEntrySpace)。`/activity` は全スペースを出す画面で、
- * `space` を解釈しない。
+ * URL の pathname と画面の対応。DOM も history も触らず、URL の読み書きは hooks/useRoute.ts が担う。
+ * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし) を返す。
  */
 import {
   isSettingsTabSection,
@@ -60,11 +52,8 @@ export type Route =
 export const CHAT_ROUTE: Route = { view: "chat" };
 
 /**
- * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
- * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * タブを持つ画面は `/settings/<section>/<sub>` の 1 セグメントを解釈し、未知のサブセクションと
- * 既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
- * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
+ * pathname から画面を決める。クエリとフラグメントは境界側で切り落とし (含めると `#foo` 付きの
+ * リンクを画面として解釈できない)、未知のサブセクション・既定タブの明示は既定タブへ正準化する。
  */
 export function parseRoute(pathname: string): Route {
   const decoded = decodePathname(pathname);
@@ -144,11 +133,8 @@ export function sessionIdOf(route: Route): string | undefined {
 }
 
 /**
- * 確定した選択を映すチャットの pathname。書く必要が無ければ null を返す (呼び出し側は何もしない)。
- * 画面は URL のセクションが正なので設定の表示中は書かない。未解決の入口が未選択のままの間も書かない
- * (URL を保ち、次に届いた一覧で解決する)。未解決でも選択が確定していればその選択を書く。
- * `undefined` (会話 ID なし) と `""` (選択なし) は同じ「会話なし」として扱い、未選択を `/s/` と書かない。
- * 同じ URL でも返す (所属スペースを載せ直すため)。同一 URL の置換は書き手 (useRoute) が省く。
+ * 確定した選択を映すチャットの pathname。書く必要が無ければ null を返し (設定の表示中・未選択の
+ * 間は書かない)、`undefined` と `""` は同じ「会話なし」として扱う。
  */
 export function sessionPath(view: Route["view"], selectedSessionId: string, entryResolved: boolean): string | null {
   if (view !== "chat") return null;
@@ -178,9 +164,8 @@ export function entrySpaceOf(route: Route, search: string): string | null {
 }
 
 /**
- * 会話を指定した URL の `space` を `spaceId` に揃えた search。他の画面の URL からは外す (残っていても
- * 解決には使わない)。他のクエリは順序も書き方もそのまま残すため、`URLSearchParams` で組み直さず、
- * 項単位で入れ替える。
+ * 会話を指定した URL の `space` を `spaceId` に揃えた search。他のクエリは順序も書き方もそのまま
+ * 残すため、`URLSearchParams` で組み直さず項単位で入れ替える。
  */
 export function withEntrySpace(route: Route, search: string, spaceId: string): string {
   const query = search.startsWith("?") ? search.slice(1) : search;
