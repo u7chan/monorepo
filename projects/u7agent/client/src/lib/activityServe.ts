@@ -1,7 +1,6 @@
 /**
  * 実行状況の「公開中のサービス」1 行と、行ごとの操作の決定。公開枠は全会話で共有の 1 本なので、
- * 稼働状態は全スペース共通の runtime status を正とし、取得できない間はリンクも起動も停止も出さない
- * (既存の 設定 → ランタイム と同じ規則)。描画は components/ActivityServiceRow と components/ActivityRowItem。
+ * 稼働状態は全スペース共通の runtime status を正とし、取得できない間は何も出さない。
  */
 import type { RuntimeServeStatus, ServeCommand } from "../types";
 import type { ActivityRow } from "./activity";
@@ -79,9 +78,8 @@ export type ActivityRowServe = {
 const NO_ROW_ACTION: ActivityRowServe = { served: false, action: "none", disabled: false };
 
 /**
- * 行の操作を決める。稼働中の起動元は `開く`、終了行でその作業ディレクトリに serve の実績があるものだけ
- * `起動` を出し、実行中の行には出さない (エージェントの serve と競合させない)。状態を取得できない間は
- * どの行にも操作を出さない。
+ * 行の操作を決める。稼働中の起動元は `開く`、終了行で serve の実績があるものだけ `起動` を出し、
+ * 実行中の行には出さない (エージェントの serve と競合させない)。取得できなければ何も出さない。
  */
 export function activityRowServe({
   row,
@@ -119,10 +117,8 @@ export function activityRowServe({
 }
 
 /**
- * 起動の確認。押す前に「どの会話の、どの作業ディレクトリを、どのコマンドで起動するか」を出す。
- * 置き換えのときは、止める側の作業ディレクトリとコマンドも別の行に出す (同じコマンドを複数の
- * 作業フォルダで使っていても、起動する先と止める先を取り違えない)。対象の会話名は本文へ埋めず
- * subject へ 1 回だけ出す。
+ * 起動の確認。どの会話の・どの作業ディレクトリを・どのコマンドで起動するかを出し、置き換えでは
+ * 止める側のディレクトリとコマンドも別の行に出す (起動先と停止先を取り違えない)。
  */
 export function runtimeServeStartConfirm(
   row: Pick<ActivityRow, "title" | "serveCommand">,

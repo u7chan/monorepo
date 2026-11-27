@@ -1,7 +1,6 @@
 /**
- * ファイル / フォルダのダウンロード（`<a download>`）の文言と起動。除外名の正はサーバーで、
- * ここは渡された実効値（設定ストア）による行の出し分けと、check の応答を使った確認・開始だけを持つ。
- * 判定と文言を純関数に閉じ、DOM を触るのは `startArchiveDownload` だけにする。
+ * ダウンロード (`<a download>`) の文言と起動。除外名の正はサーバーで、ここは実効値による行の
+ * 出し分けと check の応答を使った確認・開始だけを持つ (DOM を触るのは startArchiveDownload だけ)。
  */
 import { formatBytes } from "./attachments";
 import type { FileDownloadCheck } from "../types";
@@ -13,9 +12,8 @@ export function isArchiveExcludedName(name: string, excludeNames: readonly strin
 }
 
 /**
- * ディレクトリの確認ダイアログ。除外があるときだけ 1 回出す（何が入らないかを開始前に示す）。
- * 件数は ZIP のエントリ数で、サイズは確認ダイアログ用の丸めた表記にする。フォルダ名は clamp される
- * 独立した行へ出し、本文は件数と除外名だけにする。
+ * ディレクトリの確認ダイアログ。除外があるときだけ 1 回出し、件数は ZIP のエントリ数、フォルダ名は
+ * clamp した独立した行へ (本文は件数と除外名だけにする)。
  */
 export function archiveConfirmRequest(name: string, check: FileDownloadCheck): ConfirmRequest {
   return {
@@ -31,9 +29,8 @@ export function archiveConfirmRequest(name: string, check: FileDownloadCheck): C
 }
 
 /**
- * `<a download>` をプログラム的にクリックして保存を始める。本文は fetch せずブラウザの保存に任せるため、
- * 100 MiB をメモリに載せず、ページ遷移も起きない（ツリーとチャットの状態はそのまま）。
- * Firefox は document に繋がっていない要素の click を無視するため、押す間だけ append する。
+ * `<a download>` をプログラム的にクリックして保存を始める。本文は fetch せずブラウザに任せるので
+ * メモリに載らず遷移もしない。Firefox は未接続要素の click を無視するため押す間だけ append する。
  */
 export function startArchiveDownload(url: string, name: string): void {
   const anchor = document.createElement("a");

@@ -1,7 +1,6 @@
 /**
- * エージェント定義の許可リスト (`commonSkillNames` / `builtinSkillNames` / `toolNames`) の判定と操作。
- * `undefined` = 未指定 (全可視)、`null` = 解除 (全可視)、配列 = 明示リスト ([] はすべて OFF) の 3 状態を
- * 画面とテストで同じ規則から扱う (docs/api-catalog.md#エージェント定義のスキル許可リスト)。
+ * エージェント定義の許可リストの判定と操作。`undefined` = 未指定、`null` = 解除、配列 = 明示リスト
+ * (`[]` はすべて OFF) の 3 状態を画面とテストで同じ規則から扱う (docs/api-catalog.md#エージェント定義のスキル許可リスト)。
  */
 export type Allowlist = string[] | null | undefined;
 
@@ -31,8 +30,7 @@ export function usedCount(names: Allowlist, visibleNames: readonly string[]): nu
 
 /**
  * 個別の切替。未指定 / 解除から外すときは「いま見えている一覧 − 対象」を明示リストへ固定する
- * (あとから増えたスキルを勝手に許可しないため)。明示リストでは対象の名前だけを増減し、
- * 一覧に無い保存名 (削除・改名済み) は落とさない。
+ * (あとから増えたスキルを勝手に許可しない)。一覧に無い保存名は落とさない。
  */
 export function toggleAllowed(
   current: Allowlist,
@@ -46,9 +44,8 @@ export function toggleAllowed(
 }
 
 /**
- * グループ単位の「すべて外す」。開始集合は未指定 / 解除なら**そのスコープの visible 全件**、明示リストなら
- * その配列。そこから対象グループの visible 名だけを除くので、一覧に無い保存名と他のグループは残る
- * (ツールは 1 本の `toolNames` を共有するため、作業ツールを全 OFF にしてもアプリのツールは ON のまま)。
+ * グループ単位の「すべて外す」。開始集合は未指定 / 解除ならそのスコープの visible 全件、明示リスト
+ * ならその配列で、対象グループの visible 名だけを除く (一覧に無い保存名と他のグループは残る)。
  */
 export function disableGroup(
   current: Allowlist,
