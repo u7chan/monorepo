@@ -84,9 +84,8 @@ export type LiveToolStatus = {
 };
 
 /**
- * 状態行に出す実行中の行を選ぶ。run が実行中でなければ出さない (停止・中断で `tool_end` が
- * 来なかったカードを回し続けない)。run が続いていてもツールが動いていない間は空にし、
- * サーバーの活動文言 (考え中 / 応答を書いています) へ戻す。
+ * 状態行に出す実行中の行を選ぶ。run が実行中でなければ出さず (止まったカードを回し続けない)、
+ * ツールが動いていない間は空にしてサーバーの活動文言へ戻す。
  */
 export function liveToolStatus(runTools: Readonly<Record<string, ToolCall>>, runStatus: RunStatus): LiveToolStatus {
   const allRows = liveToolRows(runTools);
@@ -134,9 +133,8 @@ export type LiveToolDisplayPlan =
   | { type: "noop" };
 
 /**
- * 状態行の次の表示を決める。新規ツールは前回の表示時刻ではなく、その id を観測してから
- * 同じ間隔だけ待つ。短命な並列ツールを、直前の表示から時間が経っていても出さないため。
- * 同じツールの進捗だけを既存の間隔で間引く (docs/frontend.md)。
+ * 状態行の次の表示を決める。新規ツールは前回の表示時刻ではなく id を観測してから同じ間隔だけ待ち、
+ * 同じツールの進捗だけを既存の間隔で間引く (短命な並列ツールを出さない。docs/frontend.md)。
  */
 export function liveToolDisplayPlan(input: {
   view: LiveToolStatusView | undefined;

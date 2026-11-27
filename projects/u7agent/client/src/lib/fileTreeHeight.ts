@@ -1,7 +1,6 @@
 /**
- * ファイルツリー (FileBrowser) の高さの規則。**上下 2 段のときだけ**効く (左右 2 段では高さは容器に従う)。
- * 幅 (fileTreeWidth.ts) と形は同じで、既定が「内容の高さ」で px を持たない点と、0px (ツリーを完全に
- * 隠す) を選べる点が違う。
+ * ファイルツリーの高さの規則。上下 2 段のときだけ効く (左右 2 段では容器に従う)。幅と同じ形で、
+ * 既定が内容の高さ (px を持たない) な点と、0px (ツリーを完全に隠す) を選べる点が違う。
  */
 
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
@@ -23,10 +22,8 @@ export type FileTreeHeightBounds = {
 };
 
 /**
- * 高さの下限 / 上限。`containerHeight` は本文の `@container` の `clientHeight` (整数) で、
- * 未計測 (0 以下) は null を返す (上限が容器に依存するため、推測しない)。
- * 上限は `max(min, 容器 − プレビュー下限)` なので、容器がプレビュー下限以下では min == max になり
- * ハンドルごと出さない (canResizeFileTreeHeight)。
+ * 高さの下限 / 上限。`containerHeight` は本文の `@container` の clientHeight で、未計測 (0 以下) は
+ * null を返す (推測しない)。容器がプレビュー下限以下では min == max になりハンドルごと出さない。
  */
 export function fileTreeHeightBounds(containerHeight: number): FileTreeHeightBounds | null {
   const container = Math.round(containerHeight);

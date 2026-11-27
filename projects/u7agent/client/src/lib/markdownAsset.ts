@@ -1,16 +1,14 @@
 /**
  * ファイルプレビューの Markdown 本文に現れる相対パス (画像) を、表示中のファイルのディレクトリ基準で
- * ワークスペース root 相対へ解決する純関数。チャット本文の cwd 基準の解決 (lib/fileRef.ts) とは基準が
- * 違うため、描画側 (`components/markdown/MarkdownImageRefs.tsx`) が provider を差し替えて使う。
+ * ワークスペース root 相対へ解決する純関数 (チャット本文の cwd 基準とは違う)。
  */
 
 /** scheme 付き (http: / data: / javascript: など) はローカルの参照として扱わない */
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
 /**
- * src を表示中のファイルのディレクトリ (ワークスペース root 相対。`.` は root) 基準で解決する。
- * 解決できないとき (外部 URL・fragment だけ・workspace root より上へ出る `..`) は null を返し、
- * 呼び出し側は入力をそのまま使う (CSP と raw の allowlist が実体の境界になる)。
+ * src を表示中のファイルのディレクトリ基準で解決する。外部 URL・fragment だけ・root より上へ出る `..`
+ * は null を返し、呼び出し側は入力をそのまま使う (CSP と raw の allowlist が実体の境界)。
  */
 export function resolveMarkdownAssetPath(src: string, dir: string): string | null {
   const raw = src.trim();

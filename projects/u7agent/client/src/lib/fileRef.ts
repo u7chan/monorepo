@@ -66,9 +66,8 @@ export function resolveFileRef(raw: string, rootCwd: string, cwd: string): strin
 export type FileRefTarget = { kind: "work"; path: string } | { kind: "skill"; root: string; path: string };
 
 /**
- * コードスパンの参照を面の種別つきで解決する。作業フォルダ面 (cwd 相対) を先に見て、cwd 外の絶対パスが
- * `<rootCwd>/.agents/skills/<name>/<file>` のときだけスキル面 (root 固定) へ回す。共通スキル以外の
- * root 外パスは開かない (存在確認はしない字句判定のまま)。
+ * コードスパンの参照を面の種別つきで解決する。作業フォルダ面 (cwd 相対) を先に見て、cwd 外でも
+ * `<rootCwd>/.agents/skills/<name>/<file>` のときだけスキル面へ回す (存在確認はしない字句判定)。
  */
 export function resolveFileRefTarget(raw: string, rootCwd: string, cwd: string): FileRefTarget | null {
   // セッションの作業フォルダが未確定 (未作成チャット) の間は対象外 (resolveFileRef と同じ前提)
@@ -131,9 +130,8 @@ function commonSkillRelativePath(raw: string, rootCwd: string): string | null {
 }
 
 /**
- * `.agents/skills/<name>/<file>` をスキル面の座標へ分ける。名前が取れない階層 (`.agents/skills` 直下) と
- * ファイルが無い階層 (`<name>` だけ) は root を作れないため不採用。補助ファイル (assets/... など) も
- * SKILL.md と同じ扱いで、skill dir を root にした 1 つのツリーへ載せる。
+ * `.agents/skills/<name>/<file>` をスキル面の座標へ分ける。名前またはファイルが取れない階層は不採用。
+ * 補助ファイル (assets/... など) も SKILL.md と同じく skill dir を root にした 1 つのツリーへ載せる。
  */
 function skillRefTarget(rootRelative: string): FileRefTarget | null {
   const segments = rootRelative.slice(COMMON_SKILLS_ROOT.length + 1).split("/");

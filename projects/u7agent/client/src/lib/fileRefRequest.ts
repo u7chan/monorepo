@@ -1,7 +1,6 @@
 /**
- * 「ファイル参照からプレビューを開く」要求。未消費は 1 件だけ持ち、最新優先で置き換える。
- * 寿命は選択中セッションの滞在期間に限るため、破棄は選択が変わる経路 (useSessions) が呼ぶ。
- * 面は自分宛ての種別 (作業フォルダ / スキル) の要求だけを適用する。
+ * 「ファイル参照からプレビューを開く」要求。未消費は 1 件だけ最新優先で持ち、寿命は選択中セッションの
+ * 滞在期間 (破棄は選択が変わる経路が呼ぶ)。面は自分宛ての種別の要求だけを適用する。
  */
 import type { FileRefTarget } from "./fileRef";
 
@@ -98,9 +97,8 @@ export function filesModeForTarget(target: FileRefTarget): FilesMode {
 }
 
 /**
- * 面のモードを既定へ戻す契機。root (cwd) だけでは同一プロジェクトのセッション切替 / 新規チャットを
- * 拾えないため、選択中セッションの識別子も見る。チャット以外への移動と singleColumn ⇄ desktop の切替も
- * 面が消える (mount が入れ替わる) 契機なので、ここで既定へ戻す。
+ * 面のモードを既定へ戻す契機。root だけでは同一プロジェクトのセッション切替や新規チャットを拾えない
+ * ため選択中セッションの識別子も見て、チャット以外への移動と singleColumn ⇄ desktop でも戻す。
  */
 export type FilesModeScope = { singleColumn: boolean; view: string; sessionId: string };
 
