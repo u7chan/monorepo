@@ -73,9 +73,8 @@ export type SessionDialogs = {
 };
 
 /**
- * 専用ダイアログ (プロジェクト / AI要約 / 分岐 / 引き継ぎ) の対象と、退場してから画面を移す順序。
- * 対象は開いた時点の一覧から導き、操作の結果で画面を移すのは退場アニメの後 (退場中に切り替えると面ごと消える)。
- * ダイアログを閉じる導線はすべて `runAfterClose` を通す。
+ * 専用ダイアログの対象と、退場してから画面を移す順序。対象は開いた時点の一覧から導き、操作の結果で
+ * 画面を移すのは退場アニメの後 (退場中に切り替えると面ごと消える)。
  */
 export function useSessionDialogs({
   app,
@@ -175,10 +174,8 @@ export function useSessionDialogs({
   const closeHandoff = useCallback(() => runAfterClose(() => setHandoffTarget(null)), [runAfterClose]);
 
   /**
-   * 引き継ぎの実行。成功したら移動先のスペースへ切り替えて、引き継ぎ後の会話を開き直す。
-   * 切替は設定 → ランタイムの起動元リンクと同じ経路 (`openOwnerSession`) を使い、
-   * 同じスペースなら切り替えずに開き直す。履歴は同じ id のまま入れ替わるため、開き直しでは
-   * 旧バブルを捨てる (`discardHistory`)。
+   * 引き継ぎの実行。成功したら移動先のスペースへ切り替えて開き直し、同じスペースなら切り替えない
+   * (切替は `openOwnerSession` と同じ経路。履歴は同じ id のまま入れ替わるので旧バブルを捨てる)。
    */
   const handleHandoff = useCallback(
     async (request: SessionHandoffRequest) => {

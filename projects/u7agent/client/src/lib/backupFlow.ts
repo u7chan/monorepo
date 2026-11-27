@@ -1,7 +1,6 @@
 /**
- * 設定 → バックアップ (`/settings/backup`) の状態機械。書き出し / plan / 適用 / 全削除をここへ閉じ、
- * 通信と DOM (保存の開始) は注入された deps だけを触る。画面は購読した状態を描画するだけにする。
- * plan と apply は同じ `File` を送る (サーバーは状態を持たず、apply が受信した ZIP で再判定する)。
+ * 設定 → バックアップの状態機械。書き出し / plan / 適用 / 全削除をここへ閉じ、通信と DOM は
+ * 注入された deps だけを触る。plan と apply は同じ `File` を送る (サーバーは状態を持たない)。
  */
 import {
   BACKUP_EXPORT_BLOCKED_NOTE,
@@ -98,9 +97,8 @@ export type Backup = {
 export const ALL_BACKUP_TARGETS: readonly BackupTarget[] = ["prompts", "agents", "skills"];
 
 /**
- * 画面の再描画で状態機械を作り直さないための束。`reload` は毎回の描画で差し替えるが、
- * ストアは最初の 1 回だけ作る (`useState` の初期化と同じ契約)。
- * deps の関数 identity が毎回変わっても、開いているダイアログを idle に戻さない。
+ * 画面の再描画で状態機械を作り直さないための束。`reload` は毎回差し替えるがストアは最初の 1 回だけ
+ * 作る (deps の identity が変わっても開いているダイアログを idle に戻さない)。
  */
 export function createBackupStore(create: (reload: () => void) => Backup): {
   backup: Backup;

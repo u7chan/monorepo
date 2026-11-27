@@ -33,10 +33,8 @@ export type PointerDragHandlers = {
 };
 
 /**
- * ウィンドウ境界のドラッグ (pointerdown → move → 終了経路) の殻。幅の計算・`aria-*` の値・
- * 保存と commit のタイミングは呼び出し側に残す (3 か所で向きも clamp も確定の条件も違うため)。
- * 呼び出し側は move の値で state を更新せず (読み上げへは DOM へ直接書く)、動いたときだけ確定する
- * — 移動ゼロのクリックは幅を選んだ操作ではない。
+ * ウィンドウ境界のドラッグ (pointerdown → move → 終了) の殻。幅の計算・aria-*・確定の条件は
+ * 呼び出し側に残す (3 か所で向きも clamp も違う)。移動ゼロのクリックは幅を選んだ操作ではない。
  */
 export function usePointerDrag({ start, move, end }: PointerDragOptions): PointerDragHandlers {
   const dragRef = useRef<DragState | null>(null);
@@ -44,9 +42,10 @@ export function usePointerDrag({ start, move, end }: PointerDragOptions): Pointe
   const optionsRef = useRef({ start, move, end });
   optionsRef.current = { start, move, end };
 
-  // 終了経路 (pointerup / pointercancel / lostpointercapture / unmount) をここへまとめる。
-  // どの経路でもカーソルの解除・選択抑止の解除・確定を同じ処理で行う。
-  // pointerId は「いま drag 中のポインター」だけを受け付ける (別の指の同時タッチで終わらせない)
+  /**
+   * 終了経路 (pointerup / pointercancel / lostpointercapture / unmount) をここへまとめ、カーソルの解除・
+   * 選択抑止の解除・確定を同じ処理で行う (drag 中の pointerId だけを受け付ける)。
+   */
   const finish = useCallback((pointerId: number | null) => {
     const drag = dragRef.current;
     if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;

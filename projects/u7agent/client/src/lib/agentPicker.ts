@@ -1,10 +1,6 @@
 /**
- * コンポーザーのエージェント選択と既定モデルのピッカー（自前 listbox）の共通部。位置と寸法の上限を
- * 持つ純関数を集める（描画は `client/src/components/composer/AgentPicker.tsx` /
- * `client/src/components/model-settings/ModelDefaultPicker.tsx`、寸法の書き込みは
- * `client/src/hooks/useAgentPickerPopover.ts`）。
- * ⋯ メニュー（`rowMenu.ts`）とは共有しない: あちらは `role="menu"` の右端そろえ、こちらは
- * `role="listbox"` の左端そろえで、値もテストも別に固定する。
+ * エージェント選択と既定モデルのピッカー (自前 listbox) の共通部。位置と寸法の上限だけの純関数を
+ * 集める。⋯ メニュー (`role="menu"`) とは role・そろえ方が違うので共有しない。
  */
 
 /** リストの入れ物と欄の間隔 / viewport の端からの余白 (px) */
@@ -37,9 +33,8 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * リストの `fixed` 座標。既定は欄の左下（左端をそろえる）に置き、下に入らなければ上へ倒して
- * viewport の内側へ clamp する（リストが viewport より大きい場合は上 / 左に寄せる）。
- * `list` は `max-width` を当てた後の rect を渡す（幅で折り返しが変わり高さが動くため）。
+ * リストの `fixed` 座標。既定は欄の左下に置き、下に入らなければ上へ倒して viewport へ clamp する。
+ * `list` は max-width を当てた後の rect を渡す (幅で折り返しが変わり高さが動く)。
  */
 export function agentPickerPlacement(
   anchor: AgentPickerRect,
