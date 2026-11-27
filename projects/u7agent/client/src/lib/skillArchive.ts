@@ -1,7 +1,6 @@
 /**
- * 共通スキル (`.agents/skills`) のエクスポート / インポートの流れ。plan の分類と選択の状態遷移をここへ閉じ、
- * 通信と DOM (保存の開始) は注入された deps だけを触る。画面は購読した状態を描画するだけにする
- * (docs/api-catalog.md)。
+ * 共通スキル (`.agents/skills`) のエクスポート / インポートの流れ。plan の分類と選択の状態遷移をここへ
+ * 閉じ、通信と DOM は注入された deps だけを触る (画面は購読した状態を描画するだけ)。
  */
 import {
   SKILL_EXPORT_EMPTY_NOTE,

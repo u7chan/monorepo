@@ -7,9 +7,8 @@ import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSetti
 import { SIDEBAR_WIDTH } from "./layout";
 
 /**
- * 選べる上限。viewport には依存させない (docked の下限 1200px でも main が 800px 残り、
- * 右パネルの下限 min(360px, 30vw) = 360px とチャットの下限 320px の和 680px を上回る)。
- * 400px は名前 283px に相当し、実用上これ以上は不要 (docs/ui-layout.md)
+ * 選べる上限。viewport には依存させない (docked の下限 1200px でも main が 800px 残り、右パネル 360px と
+ * チャット 320px の和 680px を上回る)。400px は名前 283px に相当し、これ以上は不要 (docs/ui-layout.md)。
  */
 export const SIDEBAR_WIDTH_MAX = 400;
 /** キーボード操作 (→←) の 1 歩 */

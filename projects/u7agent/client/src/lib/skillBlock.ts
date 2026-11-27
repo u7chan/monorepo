@@ -1,7 +1,6 @@
 /**
- * 履歴に残る `/skill:` の展開結果 (`<skill name="…" location="…">本文</skill>`) の分解。
- * 形式の正はサーバー (server/src/session-skills.ts) で、SDK の `_expandSkillCommand` /
- * `parseSkillBlock` と互換の形にする。ここは表示 (バブルを畳む) と、送信エコーの照合だけを担う。
+ * 履歴に残る `/skill:` の展開結果の分解。形式の正はサーバーで、SDK の `parseSkillBlock` と互換の形に
+ * する。ここは表示 (バブルを畳む) と送信エコーの照合だけを担う。
  */
 
 export interface SkillBlock {

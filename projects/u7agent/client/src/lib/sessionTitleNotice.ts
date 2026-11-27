@@ -32,9 +32,8 @@ export function sessionTitleAttemptKey(summary: SessionTitleSummary | undefined)
 }
 
 /**
- * 次の tracker と、今回出すお知らせを返す。`reset` は表示中のお知らせを消すこと
- * (会話の切替 / 新しい試行の開始) を表す。初回 mount と会話の切替は「開いた時点」として種を入れ、
- * 既存の terminal 状態を出さない。pending / skipped は出さない (Off のままの会話で毎回「スキップ」を出さない)。
+ * 次の tracker と、今回出すお知らせを返す。`reset` は表示中のお知らせを消すこと。初回 mount と会話の
+ * 切替は「開いた時点」として種を入れ、既存の terminal を出さない (pending / skipped も出さない)。
  */
 export function nextSessionTitleNotice(
   tracker: SessionTitleNoticeTracker,
