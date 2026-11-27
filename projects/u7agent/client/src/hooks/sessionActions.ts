@@ -106,9 +106,10 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
         ...(result.queued ? { queuePosition: result.queueDepth } : {}),
       });
     }
-    // 応答は状態の正ではない。要求の後に権威ある状態 (終端 resync / run の終了 / 新しい要求) が入った、
-    // または表示が別の会話へ移った場合は、遅れて届いた queueDepth と runStatus で表示を戻さない
-    // (一覧の取り直しは続ける)
+    /**
+     * 応答は状態の正ではない。要求の後に権威ある状態 (終端 resync / run 終了 / 新しい要求) が入った、
+     * または表示が別の会話へ移ったら、遅れて届いた queueDepth と runStatus で表示を戻さない。
+     */
     if (sameChat && opsRef.current === ops && runEndSeqRef.current === runSeq && sessionIdRef.current === targetId) {
       if (result.queued) {
         // 圧縮中の送信はキューに積まれる。表示は compacting のまま保つ (実際に走っているのは圧縮)
@@ -227,9 +228,10 @@ export async function resendUnsentMessage(sendId: string, deps: ResendUnsentDeps
     void deps.refreshSessions();
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
-    // 応答が届かないだけの失敗 (受理済みだが応答が失われた) と、未受理の失敗を区別できない。
-    // まず未送信へ戻し (未確認の送信を送信済みに見せない)、サーバーが受理を確認済みの run は
-    // reducer がそのまま保つ。その上で権威ある payload を取り直して状態を確定させる
+    /**
+     * 応答が失われただけの失敗と未受理の失敗は区別できない。まず未送信へ戻し (未確認を送信済みに
+     * 見せない)、受理済みの run は reducer が保つ。その上で payload を取り直して確定させる。
+     */
     if (deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", sendId });
     await deps.recover();
     if (deps.sessionIdRef.current !== id) return;

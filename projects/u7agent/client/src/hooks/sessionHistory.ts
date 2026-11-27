@@ -29,9 +29,8 @@ export type SessionHistory = {
    */
   loadOlder(): Promise<void>;
   /**
-   * 欠落区間の取得。resync の最新ページが保持分と繋がらないときに呼ばれ、保留中の最新ページと
-   * 合わせて適用する。適用可否は reducer が保留中の cursor と突き合わせて判定するため、ここでは
-   * seq を進めない (連続 resync で保留が同じでも応答を捨てない)。
+   * 欠落区間の取得。resync の最新ページが保持分と繋がらないときに呼ばれ、保留中のページと合わせて
+   * 適用する。適用可否は reducer が cursor で判定するため、ここでは seq を進めない。
    */
   fillGap(cursor: string): Promise<void>;
   /** 権威ある payload を適用する前に通す。履歴が入れ替わっていれば捨てて、適用する payload を返す */
@@ -54,9 +53,8 @@ export function createSessionHistory({
 }: SessionHistoryDeps): SessionHistory {
   const generation = createGenerationTracker();
   /**
-   * 同じ会話で最後に適用した履歴世代 (payload の historyGeneration)。値が変わったら履歴が
-   * クリアされたとみなし、旧カーソル・旧バブル・取得中の旧ページを捨てて取り直す。会話の切替では
-   * 比較しない (sessionId も一緒に持つ)。
+   * 同じ会話で最後に適用した履歴世代。変わったら履歴がクリアされたとみなし、旧カーソル・旧バブル・
+   * 取得中の旧ページを捨てて取り直す (会話の切替では比較しない。sessionId も一緒に持つ)。
    */
   let scope: { sessionId: string; generation: string } = { sessionId: "", generation: "" };
   /** 二重取得の防止。破棄した要求の完了でも必ず戻す (適用の可否で分岐すると次を塞ぐ) */
