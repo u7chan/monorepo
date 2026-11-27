@@ -36,9 +36,8 @@ export function finishOnAnimationEnd(element: EventTarget, duration: string, onF
 }
 
 /**
- * 対象の要素自身の、指定した property の遷移が終わってから完了する。`transitionend` は色や
- * chevron の遷移でも鳴り、子孫の遷移も泡で届くため、propertyName と target の両方で絞る
- * (折りたたみの高さ = grid-template-rows だけを待つ)。
+ * 対象の要素自身の、指定した property の遷移が終わってから完了する。`transitionend` は色の遷移でも
+ * 鳴り子孫のも泡で届くため、propertyName と target の両方で絞る (折りたたみの高さだけを待つ)。
  */
 export function finishOnTransitionEnd(
   element: EventTarget,

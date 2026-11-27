@@ -1,7 +1,6 @@
 /**
- * アーカイブの除外名の下書き（一覧）と検証。DOM に依存しない純ロジックだけを置き、画面はここが返す値を描くだけにする
- * （文言と規則をテストで固定するため）。検証規則はサーバー（`server/src/archive-rules.ts`）と同じで、
- * 長さの上限は API の `maxNameLength` を受けて二重持ちしない。
+ * アーカイブの除外名の下書きと検証。DOM に依存しない純ロジックだけを置く (文言と規則をテストで固定
+ * するため)。検証規則はサーバーと同じで、長さの上限は API の `maxNameLength` を受けて二重持ちしない。
  */
 import type { ArchiveSettingsResponse } from "../types";
 import { MEMORY_NOTE, UNSAVED_EDIT_NOTE } from "./settingsNotes";

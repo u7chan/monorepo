@@ -12,9 +12,8 @@ type Loaded = Pick<VoiceInputSettingsResponse, "keyStored" | "keyAvailable" | "r
 type Fetched = { settings: Loaded | null; failed: boolean } | null;
 
 /**
- * 入力欄のマイクを出せるかの材料。取得は App の起動時に 1 回だけ行い、設定 → 音声入力でキーを
- * 保存 / 削除したときに `reload()` で取り直す（キーの状態の正はサーバー）。
- * 失敗しても会話は止めず、マイクを出さないだけにする。
+ * 入力欄のマイクを出せるかの材料。取得は App の起動時に 1 回だけ行い、キーを保存 / 削除したときに
+ * `reload()` で取り直す (キーの正はサーバー)。失敗しても会話は止めず、マイクを出さないだけにする。
  */
 export function useVoiceInputAvailability(): {
   availability: VoiceInputAvailability;

@@ -8,8 +8,7 @@ const STOP_PROMOTION_HOLD_MS = 500;
 
 /**
  * 主スロット (送信 ↑ / 停止 ■) の入れ替えの保留。`hold()` のたびに期限を延ばし、最後の呼び出しから
- * `STOP_PROMOTION_HOLD_MS` だけ `held` を保つ。送信の直後と録音の終了の直後で同じ形になるため、
- * どちらもこの 1 つのタイマーに寄せる。
+ * `STOP_PROMOTION_HOLD_MS` だけ保つ (送信直後と録音終了直後を 1 つのタイマーに寄せる)。
  */
 export function useStopPromotionHold(): { held: boolean; hold: () => void } {
   // 0 以外 = 保留中。番号を進めると、保留中に呼ばれた分も期限を延ばせる

@@ -19,10 +19,8 @@ export type TrialSectionState = {
 };
 
 /**
- * 生成トライアルの 1 面ぶんの導出と、直近の行の全文の取得。種別は引数で受け、一覧 (全種別) から
- * その種別だけを抜き出して `panel` / `running` / `latest` を決める。全文は要約に載らないため行が
- * 変わるたびに取り直し、取れるまでは null を返す (面は抜粋を描く)。
- * `onLoadTrial` は依存に入るので、呼び出し側で identity を固定する (変わるたびに取り直す)。
+ * 生成トライアルの 1 面ぶんの導出と、直近の行の全文の取得。一覧 (全種別) から種別を抜き出して
+ * `panel` / `running` / `latest` を決め、行が変わるたびに全文を取り直す (取れるまでは null)。
  */
 export function useTrialSection({
   kind,
