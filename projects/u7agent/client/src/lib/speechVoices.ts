@@ -59,9 +59,8 @@ export function speechVoiceTag(name: string): SpeechVoiceTag | undefined {
 }
 
 /**
- * ボイス欄の表示用グループ。`google/` のモデルで属性を引ける声があるときだけ
- * 女性 → 男性 →（属性を引けない声）の順に分け、引けない声は上流の宣言順のまま 1 グループで返す。
- * 並べ替える根拠が無い一覧（他プロバイダ / 未知だけ）の選択肢は消さない。
+ * ボイス欄の表示用グループ。`google/` のモデルで属性を引ける声があるときだけ 女性 → 男性 → 属性なし の
+ * 順に分け、引けない声は上流の宣言順のまま 1 グループで返す (並べ替える根拠が無い一覧は消さない)。
  */
 export function speechVoiceGroups(modelId: string, voices: readonly string[] | undefined): SpeechVoiceGroup[] {
   if (voices === undefined || voices.length === 0) return [];

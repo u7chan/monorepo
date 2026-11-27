@@ -61,9 +61,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const resolvedId: ThemeId = choice === "system" ? (prefersLight ? SYSTEM_LIGHT_ID : SYSTEM_DARK_ID) : choice;
 
-  // theme-init.js と同じ契約: html の data-theme を同期する (初回描画前の FOUC 防止は theme-init.js 側)。
-  // data-appearance はファイルツリーのアイコン色 (明暗 2 組) の切り替えだけが使う。描画後に付けると
-  // ライトテーマで最初の 1 フレームだけダーク用の色が見えるため、layout effect で描画前に揃える
+  // theme-init.js と同じ契約: html の data-theme を同期する (FOUC 防止は theme-init.js 側)。data-appearance は
+  // 描画後に付けるとライトテーマで 1 フレームだけダーク用の色が見えるため、layout effect で揃える
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = resolvedId;
     document.documentElement.dataset.appearance = THEMES.find((theme) => theme.id === resolvedId)?.appearance ?? "dark";

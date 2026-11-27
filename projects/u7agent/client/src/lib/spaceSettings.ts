@@ -1,8 +1,6 @@
 /**
- * 設定 → スペースの行の ⋯ の出し分けと、改名・削除の文言。既定スペースは改名も削除もできないので項目を
- * 持たず（⋯ ごと出さない）、追加スペースの削除は消える対象と選択の移り先を実行前に示す
- * (docs/ui-layout.md#スペース)。文言を純関数に置くのは、client に DOM テスト基盤が無いため
- * (`lib/sidebarRowMenu.ts` と同じ)。
+ * 設定 → スペースの行の ⋯ の出し分けと、改名・削除の文言。既定スペースは項目を持たず (⋯ ごと出さない)、
+ * 削除は消える対象と選択の移り先を実行前に示す。文言を純関数に置くのは client に DOM テスト基盤が無いため。
  */
 import type { Space } from "server";
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";

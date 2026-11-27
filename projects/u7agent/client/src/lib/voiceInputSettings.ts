@@ -1,7 +1,6 @@
 /**
- * 設定 → 音声入力（`/settings/voice-input`）の表示変換・文言・入力検証。DOM に依存しない関数だけを置く
- * （送信そのものは API 層が持ち、ここへは関数として渡す）。キーの有無と利用可否・固定モデルの正は
- * サーバー（`GET /api/settings/voice-input`）で、ここはその語彙だけを持つ。
+ * 設定 → 音声入力の表示変換・文言・入力検証。DOM に依存しない関数だけを置く (送信は API 層が持つ)。
+ * キーの有無と利用可否・固定モデルの正はサーバーで、ここはその語彙だけを持つ。
  */
 import type { VoiceInputSettingsResponse, VoiceInputTestFailure, VoiceInputTestResponse } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";

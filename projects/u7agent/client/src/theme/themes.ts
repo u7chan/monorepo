@@ -1,6 +1,7 @@
-// classic script / CSS との同期は themeSync.test.ts、定義の追加手順は docs/frontend.md。
-// 並びはダーク → ライト。設定 → 外観の一覧はこの並びをそのまま 2 群に割る (選択欄も同じ順になる)。
-// SYSTEM_DARK_ID / SYSTEM_LIGHT_ID の 2 つは system の解決先なので、各群の先頭から動かさない。
+/**
+ * 同期は themeSync.test.ts、追加手順は docs/frontend.md。並びはダーク → ライトで、設定 → 外観の一覧は
+ * この並びをそのまま 2 群に割る (SYSTEM_* の 2 つは各群の先頭から動かさない)。
+ */
 export const THEMES = [
   { id: "midnight", label: "ミッドナイト", appearance: "dark" },
   { id: "mocha", label: "モカ", appearance: "dark" },

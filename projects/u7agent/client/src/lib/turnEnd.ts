@@ -1,7 +1,6 @@
 /**
- * ターンの結末 (応答のメタ行に足す `Done · 1m 20s`) の型と文言。値はラン全体 (`run_end.durationMs` と
- * 同じ定義) で、履歴はそのターン最後の本文あり応答 item の `turnEnd`、ライブは `run_end` の値を写した
- * user バブル (`runDurationMs` / `runOutcome`) が持つ。無いときはセグメントごと出さない。
+ * ターンの結末 (応答のメタ行に足す `Done · 1m 20s`) の型と文言。値はラン全体で、履歴は最後の本文あり
+ * 応答 item の `turnEnd`、ライブは `run_end` を写した user バブルが持つ。無いときはセグメントごと出さない。
  */
 import type { RunOutcome, RunStatus } from "../types";
 import { formatElapsed } from "./elapsed";
