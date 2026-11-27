@@ -48,8 +48,7 @@ export type SettingsScreenProps = {
 
 /**
  * 設定のセクション → 画面。case の書き忘れは default の `satisfies never` が型エラーにする
- * (client の tsconfig は noImplicitReturns が無いので、union を足しただけでは気付けない)。
- * 各画面へ渡す値はここで facade から引き、App はルートと facade の結線とシェルの描画だけを持つ。
+ * (noImplicitReturns が無いため、union を足しただけでは気付けない)。値の取得はここで facade から。
  */
 export function SettingsScreen({
   section,

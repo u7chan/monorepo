@@ -48,9 +48,8 @@ function orderNoteText(kind: ReorderNoteKind, message: string): string {
 }
 
 /**
- * 設定 → 定型プロンプト (`/settings/prompts`)。マスタの一覧と、1 件の閲覧・編集を出す。
- * 幅の境界・下書きの持ち方・焦点・結果通知はエージェント / スキルの設定と同じ規則に従う
- * (docs/ui-layout.md の「設定の一覧と編集の境界」)。
+ * 設定 → 定型プロンプト。マスタの一覧と 1 件の閲覧・編集を出す。幅の境界・下書き・焦点・結果通知は
+ * エージェント / スキルの設定と同じ規則 (docs/ui-layout.md の「設定の一覧と編集の境界」)。
  */
 export function PromptSettingsPage({
   singleColumn = false,
