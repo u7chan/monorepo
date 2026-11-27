@@ -1,8 +1,6 @@
 /**
- * 設定 → Web 検索の表示変換と文言、テスト検索 1 回分の調停。DOM に依存しない関数だけを置く
- * (送信そのものは API 層が持ち、ここへは関数として渡す)。
- * provider の一覧・送信先・キーの要否はサーバー（`GET /api/settings/web-search`）が返し、ここは語彙だけを持つ。
- * 有効 / 無効と既定 provider の正はサーバー（`web_search_settings`）で、キーは provider ごとの行（docs/web-search.md）。
+ * 設定 → Web 検索の表示変換と文言、テスト検索 1 回分の調停。DOM に依存しない関数だけを置き、
+ * provider の一覧・送信先・キーの要否はサーバーが返す (ここは語彙だけ。docs/web-search.md)。
  */
 import type {
   WebSearchProvider,
@@ -167,9 +165,8 @@ export interface WebSearchTestOutcome {
 }
 
 /**
- * テスト検索を 1 回実行し、採用してよい結果だけを返す (採用しないときは null)。
- * 送信の途中で設定が変わったら、成功も失敗も捨てる。判断を hook の外に置くのは、
- * 「遅れて届いた応答を出さない」という非同期の契約をテストで固定するため。
+ * テスト検索を 1 回実行し、採用してよい結果だけを返す (採用しないと null)。途中で設定が変わったら
+ * 成功も失敗も捨てる (遅れて届いた応答を出さない契約をテストで固定するため、判断は hook の外)。
  */
 export async function runWebSearchTest(
   query: string,

@@ -25,10 +25,8 @@ export type SuggestionScope = {
 export type SuggestionScopeChange = "keep" | "drop";
 
 /**
- * チップの範囲が変わったか。
- * - エージェント切替 / 利用者が会話を選び直した (世代が進んだ): 捨てる
- * - 未作成チャットの添付が会話を暗黙に作った (世代は同じで "" から新しい id): 同じ下書きの続きとして残す
- * - それ以外の会話 id の移りは、下書きを持ち越さない側に倒して捨てる
+ * チップの範囲が変わったか。エージェント切替と会話の選び直しは捨て、未作成チャットの添付が会話を
+ * 暗黙に作ったとき (世代は同じで "" から新しい id) は同じ下書きの続きとして残す。
  */
 export function suggestionScopeChange(prev: SuggestionScope, next: SuggestionScope): SuggestionScopeChange {
   if (prev.agentId !== next.agentId) return "drop";
@@ -48,9 +46,8 @@ export function suggestionSendText(prompt: string, text: string): string {
 }
 
 /**
- * タイトル用に送る本文。チップ (定型プロンプト) を結合する前の入力を trim するだけで、
- * 送信本文の組み立て (suggestionSendText) とは別に持つ (タイトルから固定文を外すため)。
- * 空なら undefined を返し、サーバーに本文全体での判定をさせる。
+ * タイトル用に送る本文。チップを結合する前の入力を trim するだけで、送信本文の組み立てとは別に持つ
+ * (タイトルから固定文を外すため)。空なら undefined を返し、サーバーに本文全体で判定させる。
  */
 export function suggestionTitleSource(text: string): string | undefined {
   const body = text.trim();
