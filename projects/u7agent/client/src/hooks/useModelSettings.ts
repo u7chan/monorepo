@@ -271,8 +271,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
 
   /**
    * カスタムプロバイダーの変更。応答は GET と同じ形なのでそのまま次の状態にし、認証が変わるため
-   * health とカタログを取り直す（「モデルを選ぶ」タブの候補を追随させる）。DB 保存済みで未反映の
-   * `applied_unsynced` は完了文言ではなく [再同期] を案内する。
+   * health とカタログを取り直す (applied_unsynced は完了でなく [再同期] を案内する)。
    */
   const runCustomMutation = useCallback(
     async (provider: string, note: string, run: () => Promise<ModelMutationResponse>): Promise<boolean> => {
@@ -404,10 +403,8 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   );
 
   /**
-   * カタログの手動更新。応答は `GET /api/runtime/models` と同じ形なのでその場で一覧を差し替え、
-   * 直後の `loadCatalog()` は呼ばない (二重取得と、直後の GET 失敗で適用済みの一覧を消す事故を避ける)。
-   * health の再取得は変更系と同じ順序 (`beginLoad` → 適用 → `onRefreshHealth`) でだけ揃える
-   * (refresh の応答には `state` が無いため `applyMutation` は使えない)。
+   * カタログの手動更新。応答は `GET /api/runtime/models` と同じ形なのでその場で差し替え、直後の
+   * `loadCatalog()` は呼ばない (二重取得と、失敗で適用済みを消す事故を避ける)。
    */
   const refreshCatalog = useCallback(async (): Promise<void> => {
     const finishRefresh = refreshTracker.begin();

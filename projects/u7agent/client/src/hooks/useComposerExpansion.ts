@@ -65,9 +65,10 @@ export function useComposerExpansion({
     const dialog = dialogRef.current;
     if (dialog === null) return;
     if (expanded && !dialog.open) {
-      // showModal() は「autofocus が付いた最初の要素、無ければ先頭の操作要素」へ焦点を移す。先頭の操作要素
-      // (Model / Effort) を一瞬掴むと、本文の IME の変換中が blur で切れる。開く間だけ本文へ autofocus を
-      // 付け、焦点移動の理由ごと無くす (拡大の目的は書き続けることなので、焦点は本文に残す)
+      /**
+       * showModal() は先頭の操作要素へ焦点を移すため、そのまま開くと本文の IME の変換中が blur で切れる。
+       * 開く間だけ本文へ autofocus を付け、焦点移動の理由ごと無くす (目的は書き続けること)。
+       */
       const textarea = inputRef.current;
       textarea?.setAttribute("autofocus", "");
       dialog.showModal();
@@ -92,9 +93,10 @@ export function useComposerExpansion({
     setExpanded(false);
   }, [sending]);
 
-  // 退場アニメの間の Escape は自分で消費する。2 回目の Escape の `cancel` は `cancelable: false` (CloseWatcher の
-  // 仕様) で preventDefault では止められず、UA が即座に閉じると全画面の寸法のまま通常フローへ戻ってしまう。
-  // keydown の既定動作ごと止めるのはこの経路のため。設定ページへ移るとき (visible が false) はそのまま通す
+  /**
+   * 退場アニメの間の Escape は自分で消費する。2 回目の cancel は cancelable: false で止められず、
+   * UA が即座に閉じると全画面の寸法のまま戻るため、keydown の既定動作ごと止める (設定へ移るときは通す)。
+   */
   useEffect(() => {
     if (expandPhase !== "closing" || !visible) return;
     const onKeyDown = (event: WindowEventMap["keydown"]) => {

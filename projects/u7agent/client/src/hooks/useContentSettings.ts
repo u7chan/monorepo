@@ -33,9 +33,8 @@ import type {
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
- * 設定 → コンテンツ生成の state と操作。GET はこの画面を開いたときだけ取り、
- * 変更系の応答は GET と同じ形なので、注記を付けてそのまま次の状態にできる。
- * SDK への認証反映を持たないため、health / カタログの再取得は通さない。
+ * 設定 → コンテンツ生成の state と操作。GET はこの画面を開いたときだけ取り、変更系の応答は GET と
+ * 同じ形なので注記を付けてそのまま次の状態にする (SDK への認証反映が無いため health は通さない)。
  */
 export function useContentSettings() {
   const {
@@ -105,9 +104,8 @@ export function useContentSettings() {
   );
 
   /**
-   * モデル一覧と価格の再取得。応答は GET と同じ形なので、そのまま次の状態にする
-   * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、invalidatePendingLoads で無効化する）。
-   * 注記は失敗した系統だけを、一覧と価格のどちらが変わらないかを分けて出す。
+   * モデル一覧と価格の再取得。応答は GET と同じ形なのでそのまま次の状態にし、別の読み込みに
+   * 上書きされないよう invalidatePendingLoads で無効化する。注記は失敗した系統ごとに分ける。
    */
   const refreshCatalog = useCallback(async (): Promise<boolean> => {
     setSaving("catalog");
