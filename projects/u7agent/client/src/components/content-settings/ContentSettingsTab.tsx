@@ -100,10 +100,8 @@ export type ContentSettingsTabProps = {
 };
 
 /**
- * 設定 → コンテンツ生成の本文。生成タブは「タブ固有の設定（モデル・ボイス・既定）」と
- * 「設定に反映しない 1 回の試行 + 直近の結果」だけを持ち、履歴は専用のタブ（`TrialHistoryTab`）へ分ける。
- * 有効 / 無効とAPIキーはアプリ全体（3 種別共通）の設定なので、この本文ではなくページの帯が持つ。
- * `PUT /api/settings/content/image` と `.../speech` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
+ * 設定 → コンテンツ生成の本文。生成タブは「タブ固有の設定」と「1 回の試行 + 直近の結果」だけを持ち、
+ * 履歴は専用タブへ分ける。有効 / 無効とキーはページの帯が持つ (行が無いと PUT は 400)。
  */
 export function ContentSettingsTab({
   settings,
@@ -330,10 +328,8 @@ export function ContentSettingsTab({
           />
         ) : null}
 
-        {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める。
-            開閉は高さの遷移 (Fold) で見せる。中身は閉じている間も残す: 選択の下書きを
-            開閉のたびに捨てない (inert でフォーカスと読み上げの対象からは外す)。
-            入れるものが無い面（Codex の画像タブ）では畳みごと出さない */}
+        {/* 設定は要約 1 行を既定にし、変えるときだけ開く。開閉は高さの遷移 (Fold) で見せ、中身は閉じている間も
+            残す (inert でフォーカスと読み上げから外す)。入れるものが無い面では畳みごと出さない */}
         {settings.configured && tabSettings !== null ? (
           <section className="rounded-lg border border-line bg-raised">
             <button

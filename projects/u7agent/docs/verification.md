@@ -27,7 +27,7 @@ BGMの通常検証はダミーキーと合成stubだけを使う。[実 API 受�
 
 `pnpm comment:check`（`scripts/comment-check.mjs`）。`client/src` のコメントのうち、本文が 3 行以上あるものを数える（`//` の連続は 1 つ、空行は数えない）。予算は script の `LONG_COMMENT_BUDGET` が正で、現在の実測値を ratchet にしている。超えると失敗し、予算を上げるときは diff に出してレビューで合意する。下回ったときは下げ先の値を stderr に出す（下方向の追従は人手）。
 
-`pnpm comment:check --list` は対象を `file:line` と行数・字数つきで stdout へ列挙する（summary は stderr）。これがリファクタリング対象の一覧で、`docs/` へ理由を移すか 1〜2 行に縮める。中身が What / How / Why か、`docs/` と二重に書いていないかは機械的に判定できないため、ここでは行数だけを見て中身は review で見る（判定式は [AGENTS.md](../AGENTS.md#コメント)）。文字列・テンプレート・正規表現の中の `//` は数えないが、JSX のテキストに 3 行続く `//` は数える（誤検出し得る）。 JSX の子に置いた `/**` はコメントではなく文字として描画されるため、開きタグの直後に置いた `/**` を検出して失敗させる（JSX をパースしない heuristic で、型チェックでは検出できない）。server は対象外で、掃除が済んだ時点で `scanTargets` に足す。
+`pnpm comment:check --list` は対象を `file:line` と行数・字数つきで stdout へ列挙する（summary は stderr）。これがリファクタリング対象の一覧で、`docs/` へ理由を移すか 1〜2 行に縮める。中身が What / How / Why か、`docs/` と二重に書いていないかは機械的に判定できないため、ここでは行数だけを見て中身は review で見る（判定式は [AGENTS.md](../AGENTS.md#コメント)）。文字列・テンプレート・正規表現の中の `//` は数えないが、JSX のテキストに 3 行続く `//` は数える（誤検出し得る）。 JSX の子に置いた `/**` はコメントではなく文字として描画されるため、直前が `>` `}` `)` で次が子要素の `/**` を検出して失敗させる（JSX をパースしない heuristic で、型チェックでは検出できない）。server は対象外で、掃除が済んだ時点で `scanTargets` に足す。
 
 ## lint
 

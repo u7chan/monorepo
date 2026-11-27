@@ -62,9 +62,10 @@ export function applyToolAction(state: ChatState, action: ToolChatAction): ChatS
         ...(action.skill ? { skill: action.skill } : {}),
         ...(action.questions ? { questions: action.questions } : {}),
       };
-      // カードの置き場所: 同じ応答のバブル → assistant_end で閉じたばかりの応答 → 今ターンの host。
-      // 本文を持たない応答 (本文 item にならない) のツールは、確定履歴が同ターンの次の表示可能な
-      // 本文 item へ繰り上げるのと同じ持ち主になるまで 1 枚の host に溜める
+      /**
+       * カードの置き場所: 同じ応答のバブル → assistant_end で閉じた応答 → 今ターンの host。本文を持たない
+       * 応答のツールは、確定履歴が繰り上げるのと同じ持ち主になるまで 1 枚の host に溜める。
+       */
       const keyTarget =
         action.assistantId === undefined
           ? undefined
@@ -72,9 +73,10 @@ export function applyToolAction(state: ChatState, action: ToolChatAction): ChatS
       const ended = closedToolTarget(state, action.assistantId);
       let base = state;
       let targetId = keyTarget?.id ?? ended;
-      // 回答待ちの ask_user は**未採用の** host へ入れない: 完了したカードだけを持つ空の host は実行中だけ
-      // 描画しないため、質問カードを抱えると回答手段ごと見えなくなる。本文 item を引き取った host は
-      // 表示できる所有者なので、同じ応答のカードとしてその item に付ける (確定履歴の投影と同じ境界)
+      /**
+       * 回答待ちの ask_user は未採用の host へ入れない (空の host は実行中だけ描画しないため、質問カードを
+       * 抱えると回答手段ごと消える)。本文 item を引き取った host には同じ応答のカードとして付ける。
+       */
       if (targetId !== undefined && isPendingAskUser(call)) {
         const target = state.bubbles.find((bubble) => bubble.id === targetId);
         if (target !== undefined && isToolHostBubble(target) && target.text === "") targetId = undefined;

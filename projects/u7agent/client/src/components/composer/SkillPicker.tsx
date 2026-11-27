@@ -18,14 +18,8 @@ import type { SessionSkillsState } from "../../hooks/useSessionSkills";
 import { SkillListIcon } from "../icons";
 
 /**
- * チャットのスキルピッカー。トリガー (エージェント選択と同じ行) と、その上へ開く popover を 1 つで持つ。
- * 一覧を `form` の行に置くと開閉のたびにコンポーザーが伸び、メッセージ領域がその分だけ縮むため、
- * popover (`top layer`) に出してレイアウトを動かさない (docs/ui-layout.md)。
- *
- * 位置と大きさは `client/src/lib/skillPicker.ts` が決める。開閉は native popover に任せ、外側クリックと
- * Escape の終了は標準の light dismiss、選択 / Tab での退出は `hidePopover()` を通す。本体は常時 mount する
- * (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。開いたままの状態は `open` を
- * 正として呼び出し側が畳めるようにする (送信で閉じる経路がある)。
+ * チャットのスキルピッカー。行に置くと開閉でコンポーザーが伸びるため popover (top layer) に出し、
+ * 開閉は native popover に任せる (常時 mount。位置は lib/skillPicker.ts。docs/ui-layout.md)。
  */
 export function SkillPicker({
   state,
@@ -60,9 +54,10 @@ export function SkillPicker({
         ? `スキル一覧（${notice.text}）`
         : "スキル一覧（選択で /skill: を入力）";
 
-  // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる。
-  // 上限はスクロールする本文に当てる。popover は flex にできない (UA の「閉じている間は display: none」を
-  // ユーティリティの display が打ち消す) ため、注記の高さは本文から引いて残す
+  /**
+   * 幅と高さの上限を先に確定させる (折り返しと内部スクロールが決まり rect が最終の大きさになる)。
+   * 上限はスクロールする本文に当て、注記の高さは本文から引いて残す (popover は flex にできない)。
+   */
   const sizePicker = useCallback(
     ({ popover, trigger, viewport }: PopoverPlaceInput) => {
       if (trigger === null) return;
