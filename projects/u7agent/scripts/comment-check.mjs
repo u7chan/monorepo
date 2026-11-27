@@ -273,6 +273,26 @@ function commentsOf(text) {
   });
 }
 
+/**
+ * JSX の子要素に置いた `/**` はコメントではなく文字として描画される (実際に踏んだ不具合)。
+ * 直前の行が開きタグの `>` で終わる 1 行コメント風の `/**` を行番号で返す (`=>` は除く)。
+ */
+function jsxTextComments(text) {
+  const lines = text.split("\n");
+  const found = [];
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const indent = line.length - line.trimStart().length;
+    if (indent < 4 || !line.trimStart().startsWith("/**")) continue;
+    let previous = index - 1;
+    while (previous >= 0 && lines[previous].trim() === "") previous -= 1;
+    if (previous < 0) continue;
+    const before = lines[previous].trimEnd();
+    if (before.endsWith(">") && !before.endsWith("=>")) found.push(index + 1);
+  }
+  return found;
+}
+
 /** しきい値は 3 行。1〜2 行に収まっていれば長さでは判定しない。 */
 const isOverLong = (comment) => comment.lines >= 3;
 
@@ -289,10 +309,17 @@ function collect(target) {
 function main() {
   const list = process.argv.includes("--list");
   const found = [];
+  const errors = [];
   for (const target of scanTargets) {
     for (const file of collect(join(root, target))) {
       const shown = relative(root, file);
-      for (const comment of commentsOf(readFileSync(file, "utf8"))) {
+      const text = readFileSync(file, "utf8");
+      if (file.endsWith(".tsx")) {
+        for (const line of jsxTextComments(text)) {
+          errors.push(`${shown}:${line}: JSX の子の /** は文字として描画される。{/* */} にする`);
+        }
+      }
+      for (const comment of commentsOf(text)) {
         if (isOverLong(comment)) found.push({ file: shown, ...comment });
       }
     }
@@ -303,6 +330,10 @@ function main() {
   const summary = `2 行超のコメント ${found.length} 件 / ${lines} 行、予算 ${LONG_COMMENT_BUDGET} 件`;
   const tighten = `予算を ${found.length} に下げられる (現在 ${LONG_COMMENT_BUDGET})`;
 
+  if (errors.length > 0) {
+    console.error(errors.join("\n"));
+  }
+
   if (list) {
     for (const comment of found) {
       const preview = comment.text.length > 70 ? `${comment.text.slice(0, 70)}…` : comment.text;
@@ -311,11 +342,11 @@ function main() {
       );
     }
     console.error(`comment check: ${summary}`);
-    if (found.length > LONG_COMMENT_BUDGET) process.exit(1);
+    if (found.length > LONG_COMMENT_BUDGET || errors.length > 0) process.exit(1);
     return;
   }
 
-  if (found.length > LONG_COMMENT_BUDGET) {
+  if (found.length > LONG_COMMENT_BUDGET || errors.length > 0) {
     console.error(`comment check: ${summary}`);
     console.error("足したコメントを 1〜2 行に縮めるか docs/ へ理由を移す。全件は --list、予算を上げるなら diff に出す");
     process.exit(1);
@@ -324,6 +355,6 @@ function main() {
   if (found.length < LONG_COMMENT_BUDGET) console.error(`comment check: ${tighten}`);
 }
 
-export { commentsOf, isOverLong };
+export { commentsOf, isOverLong, jsxTextComments };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();

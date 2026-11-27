@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { commentsOf, isOverLong } = await import(new URL("../../scripts/comment-check.mjs", import.meta.url).href);
+const { commentsOf, isOverLong, jsxTextComments } = await import(
+  new URL("../../scripts/comment-check.mjs", import.meta.url).href
+);
 
 const linesOf = (source: string): number[] => commentsOf(source).map((comment: { lines: number }) => comment.lines);
 
@@ -71,4 +73,14 @@ test("JSX の {/* ... */} も行数を数える", () => {
 test("しきい値は 3 行", () => {
   assert.equal(isOverLong({ lines: 2 }), false);
   assert.equal(isOverLong({ lines: 3 }), true);
+});
+
+test("JSX の子の /** は文字として描画されるので行番号で返す", () => {
+  const jsx = "const el = (\n  <div>\n    /** a\n     b */\n    <span />\n  </div>\n);";
+  assert.deepEqual(jsxTextComments(jsx), [3]);
+});
+
+test("属性の間や => の後の /** は JSX の子ではない", () => {
+  assert.deepEqual(jsxTextComments("const el = <div\n    a={1}\n    /** a */\n    b={2}\n/>;"), []);
+  assert.deepEqual(jsxTextComments("const f = (x: number) =>\n    /** a */\n    x;"), []);
 });

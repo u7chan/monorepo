@@ -344,10 +344,8 @@ export function FilePreview({
           />
         </div>
       ) : showHtml ? (
-        /**
-         * 相対パスは同じルート配下へ解決する。sandbox フラグは CSP と両方に書き、src と sandbox を同じ
-         * 更新で変える (Chromium はナビゲーション開始時のフラグで文書を作る)。切替時は key も変える。
-         */
+        // 相対パスは同じルート配下へ解決する。sandbox フラグは CSP と両方に書き、src と sandbox を同じ
+        // 更新で変える (Chromium はナビゲーション開始時のフラグで文書を作る)。切替時は key も変える
         <iframe
           key={storageEnabled ? "storage" : "isolated"}
           src={htmlPreviewSrc}
@@ -415,10 +413,8 @@ export function FilePreview({
       onClose={(event) => {
         if (event.target === event.currentTarget) event.stopPropagation();
       }}
-      /**
-       * Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫の
-       * cancel (本文の画像の拡大) も泡立って届くので、自分の分だけを受ける (受けると拡大が閉じない)。
-       */
+      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫の
+      // cancel (本文の画像の拡大) も泡立って届くので、自分の分だけを受ける (受けると拡大が閉じない)
       onCancel={(event) => {
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
