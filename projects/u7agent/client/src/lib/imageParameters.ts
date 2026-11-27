@@ -74,9 +74,8 @@ export function imageParameterFields(declarations: ImageParameterDeclarations | 
 }
 
 /**
- * 宣言に無いキーを下書きから落とす。モデルを切り替えたときに欄を隠すだけだと、隠れた値が要求に残って
- * 400 になるため、画面の state からも落とす（保存値には触らない）。選択肢に無い `enum` の値も同じ理由で落とす。
- * 何も落とさないときは同じ参照を返す（呼び出し側が state の更新を無限に起こさないため）。
+ * 宣言に無いキーを下書きから落とす。モデルを切り替えたときに欄を隠すだけだと隠れた値が要求に残って
+ * 400 になるため、画面の state からも落とす (保存値には触らない)。何も落とさないときは同じ参照を返す。
  */
 export function pruneImageTrialParameters(
   declarations: ImageParameterDeclarations | undefined,
