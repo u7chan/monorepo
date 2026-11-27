@@ -61,10 +61,8 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
 };
 
 /**
- * 行の ⋯ と操作メニュー。外装は native `popover="auto"` なので top layer に載り、ツリーの
- * スクロール枠に切られない。外側クリックと Escape の終了は標準の light dismiss に任せ、
- * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
- * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
+ * 行の ⋯ と操作メニュー。native `popover="auto"` なので top layer に載り、ツリーのスクロール枠に
+ * 切られない。外側クリックと Escape は light dismiss に任せ、自前の閉じる経路だけ hidePopover を通す。
  */
 export function RowMenu<K extends RowMenuActionKind>({
   name,
@@ -122,9 +120,8 @@ export function RowMenu<K extends RowMenuActionKind>({
           {copied ? <CheckIcon /> : <MoreIcon />}
         </span>
       </button>
-      {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
-          テーマのトークンを当てる。位置は place() が left / top を直接書く。高さの上限を超えたぶんは
-          ここ (popover 自身) のスクロールへ逃がす */}
+      {/* popover の UA 既定 (margin / border / padding / overflow) を打ち消してからテーマのトークンを当てる。
+          位置は place() が left / top を書き、高さの上限を超えた分は popover 自身のスクロールへ逃がす */}
       <div
         {...menu.popoverProps}
         {...menu.exitProps}

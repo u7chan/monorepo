@@ -9,9 +9,8 @@ export type DefinitionListProps = {
   /** 一覧の上に置く検索欄。絞り込みは表示だけで、選択や一括操作の母集合は変えない */
   search?: ReactNode;
   /**
-   * 一覧の下端に固定する操作 (追加 / インポート / エクスポート)。件数に比例して下がる位置へ
-   * 置かないため、スクロールする行の外に出す。取得できていないなど操作できない事情があるときは
-   * 渡さない (できない理由は一覧側の注記が出す)
+   * 一覧の下端に固定する操作 (追加 / インポート / エクスポート)。スクロールする行の外に出し、
+   * 操作できない事情があるときは渡さない (できない理由は一覧側の注記が出す)。
    */
   footer?: ReactNode;
   /**
@@ -23,9 +22,8 @@ export type DefinitionListProps = {
 };
 
 /**
- * 定義の一覧パネル (エージェント / スキル)。行の寸法は MenuItem が持つので、
- * ここは見出し・絞り込み・固定フッターと余白だけを揃える。
- * 一覧と編集面を並べるのは 900px 以上だけで、狭いときはこの一覧がページ全体を使う (docs/ui-layout.md)。
+ * 定義の一覧パネル (エージェント / スキル)。行の寸法は MenuItem が持つので、見出し・絞り込み・
+ * 固定フッターと余白だけを揃える。並べるのは 900px 以上で、狭いときはページ全体を使う。
  */
 export function DefinitionList({ title, count, tabs, search, footer, emptyLabel, children }: DefinitionListProps) {
   return (

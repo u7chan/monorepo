@@ -9,9 +9,8 @@ export type TabToolbarProps = {
   /** singleColumn では文脈の下に操作を積む。文脈が操作に押し潰されて縦 1 列になるのを避ける */
   stack?: boolean;
   /**
-   * 文脈の最小幅 (px)。パスの末尾のように縮めてはいけない部分を持つ面が実測値を渡すと、帯に収まらない
-   * 幅では操作が次の段へ落ちる。min-w-0 のままだと文脈が 0 まで縮み、shrink-0 の子が操作の下や
-   * overflow-hidden の外へはみ出す。100% で頭打ちにするので、窓より広い値でもはみ出さない
+   * 文脈の最小幅 (px)。縮めてはいけない部分を持つ面が実測値を渡すと、収まらない幅では操作が次の段へ
+   * 落ちる (min-w-0 のままだと 0 まで縮み、shrink-0 の子がはみ出す)。100% で頭打ちにする。
    */
   contextMinWidth?: number;
   /** layout (位置・幅・伸縮) だけを渡す。余白はこの行が持つ */
@@ -27,9 +26,8 @@ export function TabToolbar({ context, actions, stack = false, contextMinWidth, c
         className,
       )}
     >
-      {/* 左スロットは行を縮める (min-w-0)。縮めないと nowrap の長いパスが行の最小幅になり、
-          切り詰めが子の truncate まで降りず、右の操作が容器の外へ出る。最小幅を渡された面だけは
-          代わりにその幅を確保し、入り切らない幅では操作を次の段へ落とす */}
+      {/* 左スロットは行を縮める (min-w-0)。縮めないと nowrap の長いパスが行の最小幅になり、truncate が
+          効かず右の操作が容器の外へ出る。最小幅を渡された面だけはその幅を確保し、足りなければ次の段へ */}
       <div
         className={cn(
           "flex flex-1 flex-wrap items-center gap-x-1.5 gap-y-1",
