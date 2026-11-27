@@ -6,9 +6,8 @@ import { usePopoverShell } from "../../hooks/usePopoverShell";
 import { filterDefaultModelOptions, type DefaultModelOption } from "../../lib/modelSettings";
 
 /**
- * アプリ既定モデルのピッカー。候補（選択済みモデル）は 1,500 件規模になり得て native `<select>`
- * では検索できないため、AgentPicker と同じ native popover + listbox で名前 / ID の検索を付ける。
- * 本体は常時 mount する（条件付き mount だと標準の開閉と state が二重管理になる）。
+ * アプリ既定モデルのピッカー。候補は 1,500 件規模になり得て `<select>` では検索できないため、
+ * AgentPicker と同じ native popover + listbox で名前 / ID の検索を付ける (本体は常時 mount)。
  */
 export function ModelDefaultPicker({
   options,

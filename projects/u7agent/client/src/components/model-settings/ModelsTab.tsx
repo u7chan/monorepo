@@ -333,9 +333,8 @@ function CandidateGroupSection({
   const expanded = forceOpen || open;
   return (
     <div className="overflow-hidden rounded-lg border border-line bg-soft">
-      {/* 開閉は高さの遷移 (Fold) で見せる。開く側も閉じる側も同じ長さで動かすため、details ではなく
-          aria-expanded のボタンと .tree-fold を使う (details::details-content の遷移は Safari で効かない)。
-          折りたたみ中の行は描画しない: 一覧は provider ごとに数百行になり得て、閉じたまま残すと重い */}
+      {/* 開閉は高さの遷移 (Fold) で見せる。details ではなく aria-expanded のボタンと .tree-fold を使う
+          (details::details-content の遷移は Safari で効かない)。折りたたみ中の行は描画しない (数百行になる) */}
       <button
         type="button"
         aria-expanded={expanded}

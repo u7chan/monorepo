@@ -10,9 +10,8 @@ import { SessionDiagnosticsCard, type SessionDiagnosticsFailure } from "../Sessi
 import { RuntimeTabLayout, type RuntimeTabProps } from "./RuntimeTabLayout";
 
 /**
- * 設定 → ランタイム の「診断」面。対象の会話と report は面のツールバーとカードが共有するためこのタブが持ち、
- * 取得もここで回す。コピー / 生ログの導線はカードに残し、押せない理由はカード内に 1 行で出す
- * (対象を選ぶまでツールバーの [再読み込み] は無効)。
+ * 設定 → ランタイムの「診断」面。対象の会話と report はツールバーとカードが共有するためここが持ち、
+ * 取得もここで回す。コピー / 生ログの導線はカードに残し、押せない理由はカード内に 1 行で出す。
  */
 export function DiagnosticsTab({
   sessions,

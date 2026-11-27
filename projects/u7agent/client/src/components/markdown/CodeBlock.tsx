@@ -8,8 +8,7 @@ import { CopyButton } from "../chat/CopyButton";
 
 /**
  * コードフェンスの描画。ハイライトは文字列 props で memo 化され、伸びているブロックだけを再計算する。
- * 行番号は本文と同じ行送りの別列に出し、コピーにも選択にも入れない (docs/markdown.md#コードブロックの行番号)。
- * note は呼び出し側が理由を 1 行添えるためのもの (未対応記法を原文表示に落とすときなど)。
+ * 行番号は本文と同じ行送りの別列に出し、コピーにも選択にも入れない (docs/markdown.md)。
  */
 export const CodeBlock = memo(function CodeBlock({
   lang,

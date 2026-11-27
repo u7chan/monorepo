@@ -9,10 +9,8 @@ import {
 } from "../../lib/fileTreeWidth";
 
 /**
- * ファイルツリー右端に重ねる幅のハンドル。ドラッグ / →← / Home / End / ダブルクリックで幅を決める。
- * 幅の state は FileBrowser 側が持つため、ここは表示の追従 (preview) と確定 (commit) を呼ぶだけ。
- * 左バーと同じ向きで、右へ動かす = 幅を増やす。位置は `--file-tree-width` に追随させる
- * (ドラッグ中は preview が変数を直接書き換えるため、state の再描画を待たずに境界へ重なり続ける)。
+ * ファイルツリー右端に重ねる幅のハンドル (ドラッグ / →← / Home / End / ダブルクリック)。幅の state は
+ * FileBrowser が持ち、ここは preview と commit を呼ぶだけ。位置は `--file-tree-width` に追随させる。
  */
 export function FileTreeWidthResizeHandle({
   width,

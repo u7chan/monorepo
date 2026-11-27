@@ -25,9 +25,8 @@ export type ModelIdPickerProps = {
 };
 
 /**
- * カスタムプロバイダーのモデル ID 選択。押したときに `/models` の一覧を取り、
- * 検索付きの popover で 1 件選ぶ。入力欄は自由入力のままなので、一覧に無い ID も使える。
- * 開閉と配置の作法は SelectMenu / ModelDefaultPicker に揃える。
+ * カスタムプロバイダーのモデル ID 選択。押したときに `/models` を取って検索付きの popover で選ぶ。
+ * 入力欄は自由入力のままなので一覧に無い ID も使える (開閉と配置は SelectMenu に揃える)。
  */
 export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: ModelIdPickerProps) {
   const pickerId = useId();
