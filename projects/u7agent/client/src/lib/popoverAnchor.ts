@@ -1,9 +1,8 @@
 import type { RowMenuRect } from "./rowMenu";
 
 /**
- * popover のアンカー可視性に使う領域。viewport に加えて、overflow-y を持つ直近の祖先
- * (一覧のスクロール枠) を返す。popover は top layer に載るので枠に切られはしないが、
- * アンカーが枠の外へ動いたら追従せず閉じる (見えていない行のメニューを残さない)。
+ * popover のアンカー可視性に使う領域。viewport と overflow-y を持つ直近の祖先を返す。top layer なので
+ * 切られはしないが、アンカーが枠の外へ動いたら追従せず閉じる (見えていない行のメニューを残さない)。
  */
 export function scrollClip(element: HTMLElement): RowMenuRect | null {
   for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {

@@ -1,11 +1,6 @@
 /**
  * native popover の位置決めの共通部。幅・高さの上限と `fixed` 座標の計算だけを持つ純関数を集める
- * (描画と popover の操作は各コンポーネント)。チャットの composer では入力欄が画面の下端にあり、
- * ポップアップは「トリガーの上を優先し、入らなければ下へ倒し、viewport の内側へ clamp する」形で
- * そろう。スキル一覧 (`client/src/lib/skillPicker.ts`) と Model / Effort
- * (`client/src/components/composer/ModelEffortControls.tsx`) がこの計算を共有する。
- * ⋯ メニュー (`rowMenu.ts`) / エージェント選択 (`agentPicker.ts`) は共有しない: あちらは項目が 1 行で
- * 幅も内容に追随させるため、上へ倒す判定と clamp だけでは足りない (docs/ui-layout.md)。
+ * (上を優先し、入らなければ下へ倒して viewport へ clamp。⋯ メニューとは共有しない)。
  */
 
 /** ポップアップと欄の間隔 / viewport の端からの余白 (px) */

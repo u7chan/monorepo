@@ -1,7 +1,6 @@
 /**
- * 行の ⋯ メニューの共通部。項目の型と、メニューの位置 / キーボード移動の計算だけを持つ純関数を集める
- * (描画と popover の操作は `client/src/components/RowMenu.tsx`、画面ごとの出し分けは
- * `client/src/lib/fileRowMenu.ts` / `client/src/lib/sidebarRowMenu.ts`)。
+ * 行の ⋯ メニューの共通部。項目の型と、位置 / キーボード移動の計算だけを持つ純関数を集める (描画と
+ * popover の操作は `components/RowMenu.tsx`、出し分けは各画面の lib)。
  */
 
 /** 画面ごとに出せる種別が違うため、メニュー項目の型は種別を型引数に取る (出し分け側が種別を狭める) */

@@ -1,8 +1,6 @@
 /**
- * env で設定した公開オリジン (health の appOrigin / filePreviewOrigin / serviceOrigin) を URL の基準へ
- * そろえる。値はサーバーが起動時に検証しているが、古い server や手で組んだ値でも壊れた URL を
- * 画面へ焼き込まないよう、ここでも http(s) の origin だけを通す。通らなければ呼び出し側の
- * フォールバック (現行の hostname + port) に任せる。
+ * env で設定した公開オリジンを URL の基準へそろえる。値はサーバーが検証しているが、古い server や手で
+ * 組んだ値でも壊れた URL を焼き込まないよう、ここでも http(s) の origin だけを通す。
  */
 export function publicOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;

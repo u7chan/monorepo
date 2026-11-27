@@ -1,8 +1,6 @@
 /**
- * provider ロゴのキー解決と、ロゴが無い provider の頭文字。
- * 一覧・詳細・モデル候補で同じ provider が同じ見た目になるよう、対応表はここ 1 箇所に保つ
- * （パス本体は下の PROVIDER_ICON_PATHS。新しい provider を足すときは両方へ足す）。
- * 取り込んだパスの帰属表示は client/public/THIRD_PARTY_NOTICES.txt に置き、配布物へ同梱する。
+ * provider ロゴのキー解決と、ロゴが無い provider の頭文字。同じ provider が同じ見た目になるよう対応表は
+ * ここ 1 箇所に保つ (足すときは `PROVIDER_ICON_PATHS` も)。帰属表示は THIRD_PARTY_NOTICES.txt。
  */
 
 /** pi SDK の builtin provider id をロゴへ寄せる表。派生 id（-cn など）も同じロゴにする */
