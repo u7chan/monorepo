@@ -22,9 +22,8 @@ export type PromptsState =
 export type PromptActionResult = { ok: true; id: string; refreshError?: string } | { ok: false; message: string };
 
 /**
- * 定型プロンプトのマスタ一覧の取得と変更。変更の後は一覧を取り直し、`onChanged` で
- * エージェントのカタログも取り直す (マスタの編集はエージェントの解決済みの値へ反映される)。
- * 取得は世代管理し、遅れて届いた応答が新しい一覧を巻き戻さないようにする。
+ * 定型プロンプトのマスタ一覧の取得と変更。変更の後は一覧を取り直し、`onChanged` でエージェントの
+ * カタログも取り直す。取得は世代管理し、遅れて届いた応答が新しい一覧を巻き戻さないようにする。
  */
 export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }): {
   state: PromptsState;

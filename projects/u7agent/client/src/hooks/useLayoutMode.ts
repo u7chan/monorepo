@@ -17,9 +17,8 @@ function applyLayoutMode(mode: LayoutMode): void {
 }
 
 /**
- * viewport の大きさに追従して、モードと「並べられる幅か」を返す。どちらも同じ resize / orientationchange を
+ * viewport の大きさに追従して、モードと「並べられる幅か」を返す。同じ resize / orientationchange を
  * 購読し、初期値は render 中に確定させる (モバイルで desktop shell が一瞬出るのを避ける)。
- * 高さがソフトキーボードで縮む場合の挙動は docs/ui-layout.md の制約を参照。
  */
 function useViewportLayout(): ViewportLayout {
   const [layout, setLayout] = useState<ViewportLayout>(detectLayout);

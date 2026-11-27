@@ -13,12 +13,7 @@ export type { SessionSkillsState } from "../lib/sessionSkills";
 
 /**
  * チャットのスキル一覧。セッションが確定していれば既存 API、新規チャットなら作成前の選択で解決する
- * プレビュー API を使う。取得キー (sessionId、無ければ projectId と agentId) が変わるたびに取り直す
- * (本文は送信時に BFF が読むため、一覧は優先順位の表示に使う)。
- *
- * `revalidate` はポップアップを開いたときの取り直しで、持っている一覧を消さない (消すと読込表示へ戻り、
- * ポップアップの高さが跳ねる)。失敗しても一覧を残し、理由は `reloadError` として重ねる
- * (解決は `client/src/lib/sessionSkills.ts` の `reduceSessionSkills`)。取得中は何もしない。
+ * プレビュー API を使い、取得キーが変わるたびに取り直す (`revalidate` は持っている一覧を消さない)。
  */
 export function useSessionSkills({
   sessionId,

@@ -6,9 +6,8 @@ import { createCopyResultController, type CopyResultSnapshot } from "../lib/copy
 const FAILURE_RESET_MS = 8000;
 
 /**
- * コピーの結果表示。結果の適用可否とタイマーは `client/src/lib/copyResult.ts` の controller が持ち、
- * ここは React の state へ写して返すだけにする。`owner` (会話 ID など) が変わったら controller が
- * 未完了のコピーを失効させるので、所有部品が remount されない面でも前の所有者の結果を残さない。
+ * コピーの結果表示。適用可否とタイマーは `lib/copyResult.ts` の controller が持ち、ここは React の
+ * state へ写すだけ。`owner` が変わったら controller が未完了を失効させる (remount されない面でも)。
  */
 export function useMessageCopy(owner = "", resetMs = 2000, failureResetMs = FAILURE_RESET_MS) {
   const [state, setState] = useState<CopyResultSnapshot>({ copiedId: "", failure: null });

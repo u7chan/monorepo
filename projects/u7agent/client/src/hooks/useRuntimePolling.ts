@@ -11,9 +11,8 @@ export type RuntimePolledController = {
 };
 
 /**
- * サービス状態のポーリングの mount と破棄。controller は mount の間だけ作り、初回の取得と
+ * サービス状態のポーリングの mount と破棄。controller は mount の間だけ作り、初回と
  * `POLL_INTERVAL_MS` ごとの取得を回し、unmount で interval と controller を片付ける。
- * 何を取得して何を操作できるかは `create` が決める（作るものを差し替えても回し方は同じ）。
  */
 export function useRuntimePolling<TState, TController extends RuntimePolledController>(
   initial: TState,

@@ -1,7 +1,6 @@
 /**
- * 診断情報の入口。クライアント状態 (このタブの reducer と SSE の受信記録) と、サーバーのダンプ
- * (`GET /api/sessions/:id/diagnostics`) を 1 つの JSON にまとめ、コピー / ファイル保存 / 生ログの
- * 取得を提供する。画面は `DiagnosticsContext` 経由で使う。
+ * 診断情報の入口。クライアント状態 (reducer と SSE の受信記録) とサーバーのダンプを 1 つの JSON に
+ * まとめ、コピー / ファイル保存 / 生ログの取得を提供する (画面は `DiagnosticsContext` 経由)。
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSpaceApi } from "../SpaceContext";

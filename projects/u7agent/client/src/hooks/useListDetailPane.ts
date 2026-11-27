@@ -25,9 +25,8 @@ export type ListDetailPane = {
 };
 
 /**
- * 設定ページの「一覧 ⇄ 詳細」の面・焦点・Escape。並べて見せないとき (singleColumn / 狭い desktop /
- * 低い窓) だけ切り替わり、焦点は詳細では見出しへ、戻ったときは選択中の行へ移す
- * (docs/ui-layout.md の「設定の一覧と編集の境界」)。行の特定は呼び出し側が `rowAttribute` で渡す。
+ * 設定ページの「一覧 ⇄ 詳細」の面・焦点・Escape。並べて見せないときだけ切り替わり、焦点は詳細では
+ * 見出しへ、戻ったときは選択中の行へ移す (行の特定は呼び出し側が `rowAttribute` で渡す)。
  */
 export function useListDetailPane({ split, selectedId, rowAttribute }: ListDetailPaneOptions): ListDetailPane {
   const [view, setView] = useState<ListDetailView>("list");

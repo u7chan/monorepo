@@ -8,13 +8,8 @@ import {
 } from "../lib/settingsNav";
 
 /**
- * 画面 (view) は URL の pathname を唯一の正として、`popstate` の購読と URL の置換を 1 箇所に集約する。
- * 会話の選択は App の sessionId が正で、`/s/<id>` はそれを映す鏡 (URL へ書くのは syncSessionPath)。
- * 画面切替の反映と URL の更新を必ず同じ `navigate` から行う (独立に同期させない)。
- * 切替は `replaceState` なので履歴は追加しない (Back / Forward はブラウザーの既存履歴に従う)。
- * クエリとフラグメントは解釈も破棄もしない (チャット本文の `#foo` 断片リンクを壊さないため持ち越す)。
- * 例外は `/s/<id>` の `space` だけで、確定した選択の所属スペースを表す (`withEntrySpace` が会話を
- * 指定した URL には載せ、他の画面の URL からは外す)。
+ * 画面 (view) は URL の pathname を唯一の正とし、`popstate` の購読と URL の置換を 1 箇所に集約する。
+ * 切替と URL の更新は同じ `navigate` から行い、クエリとフラグメントは持ち越す (`/s/<id>` は鏡)。
  */
 export type RouteState = {
   route: Route;
