@@ -14,10 +14,8 @@ export const SIDEBAR_WIDTH = 252;
 export const SIDEBAR_OVERLAY_WIDTH = 1200;
 
 /**
- * 定義の一覧と詳細を並べる最小幅。CSS の `--breakpoint-wide` (`client/src/styles/index.css`) と同じ値で、
- * これ未満の desktop と singleColumn はページ内の一覧 ⇄ 詳細にする (同じ数字を 2 箇所に持つので、
- * 片方を変えたらもう片方も変える。`docs-check` では検出できない)。viewport で判定してよいのは、
- * 1200px 未満では左バーが overlay になり viewport ≒ 内容幅になるため (SIDEBAR_OVERLAY_WIDTH の上の説明と同じ帯)。
+ * 定義の一覧と詳細を並べる最小幅。CSS の `--breakpoint-wide` と同じ値で、片方を変えたら両方変える
+ * (`docs-check` では検出できない)。1200px 未満は左バーが overlay になり viewport ≒ 内容幅になる。
  */
 export const WIDE_MIN_WIDTH = 900;
 
@@ -27,9 +25,8 @@ export function resolveWide(width: number): boolean {
 }
 
 /**
- * 実行状況 ( `/activity` ) を docked にする幅。`docs/ui-layout.md` の実行状況の節に合わせ、
- * 既存の `WIDE_MIN_WIDTH` (900px 以上で wide) より 1px 広い境界を持つ。
- * チャットの 1200px 判定 (`resolveSidebarPlacement`) は変えない。
+ * 実行状況 (`/activity`) を docked にする幅。`docs/ui-layout.md` に合わせて `WIDE_MIN_WIDTH` より
+ * 1px 広く、チャットの 1200px 判定 (`resolveSidebarPlacement`) とは別に持つ。
  */
 export const ACTIVITY_DOCKED_MIN_WIDTH = WIDE_MIN_WIDTH + 1;
 
@@ -47,9 +44,8 @@ export type LayoutMode = "desktop" | "portrait" | "landscape";
 export type SidebarPlacement = "docked" | "overlay";
 
 /**
- * - desktop: 幅と高さの両方が足りるとき。既存の 2 カラム
- * - landscape: 高さが足りないとき。横向きスマホのほか、低いウィンドウも含む
- * - portrait: 幅が足りないとき (縦向きスマホ)
+ * desktop は幅と高さの両方が足りるとき、landscape は高さが足りないとき (横向きスマホ・低い窓)、
+ * portrait は幅が足りないとき (縦向きスマホ)。
  */
 export function resolveLayoutMode(width: number, height: number): LayoutMode {
   if (width >= DESKTOP_MIN_WIDTH && height >= DESKTOP_MIN_HEIGHT) return "desktop";
@@ -58,9 +54,8 @@ export function resolveLayoutMode(width: number, height: number): LayoutMode {
 }
 
 /**
- * 左バーの置き方。singleColumn (portrait / landscape) は常に overlay で、
- * 開く導線は SingleColumnBar の ☰。desktop は左バーを畳んで main へ回すため width < 1200 で overlay にする
- * (幅は選べるようになったが、狭い窓では main が足りないので閾値は据え置き。docs/ui-layout.md)。
+ * 左バーの置き方。singleColumn は常に overlay で ☰ から開き、desktop は width < 1200 で overlay に
+ * する (狭い窓では main が足りない。docs/ui-layout.md)。
  */
 export function resolveSidebarPlacement(width: number, mode: LayoutMode): SidebarPlacement {
   if (mode !== "desktop") return "overlay";
