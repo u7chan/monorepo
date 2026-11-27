@@ -60,9 +60,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
 ];
 
 /**
- * 設定 → 外観 のタブ。テーマ (色) とアイコン (ファイルツリーの見た目) は同じ「見た目の設定」だが、
- * テーマの一覧は縦に長く、片方だけ見たいときに他方が場所を取るため分ける。
- * URL は `/settings/appearance` と `/settings/appearance/<sub>` を正とし、既定タブ (theme) はパスへ出さない。
+ * 設定 → 外観 のタブ。テーマとアイコンは同じ見た目の設定だが、テーマの一覧が縦に長いため分ける。
+ * URL は `/settings/appearance` と `<sub>` を正とし、既定タブ (theme) はパスへ出さない。
  */
 export type AppearanceSubsection = "theme" | "icons";
 
@@ -74,13 +73,8 @@ export const APPEARANCE_SUBSECTIONS: { subsection: AppearanceSubsection; label: 
 export const DEFAULT_APPEARANCE_SUBSECTION: AppearanceSubsection = "theme";
 
 /**
- * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
- * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
- *
- * タブにするのは、同じ対象を別の面から見るとき (モデルの選択とプロバイダー認証、画像生成と
- * 音声（TTS）、ファイルツリーとダウンロードの除外) と、読み取り専用で面ごとに取得と操作が
- * 閉じているとき (ランタイムのサービス / 環境 / 診断) だけ。どちらも hook / API が分かれてよいが、
- * 対象そのものが別の面 (web-search とモデル) はルートのセクションに置く。
+ * 設定 → モデル のタブ。既定タブ (models) はパスへ出さず、タブにするのは同じ対象を別の面から見る
+ * ときと、読み取り専用で面ごとに取得と操作が閉じているときだけ (対象が別ならルートのセクション)。
  */
 export type ModelsSubsection = "models" | "providers";
 
@@ -92,9 +86,8 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
 
 /**
- * 設定 → コンテンツ生成 のタブ。画像・音声・BGM は同じ行 (`content_settings`)・同じ APIキー・同じ
- * 有効化ゲートを共有するため、1 つの対象の別の面として分ける。規則は MODELS_SUBSECTIONS と同じ。
- * `history` だけは種別ではなく、3 つの試行をまとめて見る面（生成の設定を持たない）。
+ * 設定 → コンテンツ生成 のタブ。画像・音声・BGM は同じ行・APIキー・有効化ゲートを共有するので
+ * 1 つの対象の別の面として分ける (規則は MODELS_SUBSECTIONS と同じ)。`history` は試行の横断面。
  */
 export type ContentSubsection = "image" | "speech" | "bgm" | "history";
 
@@ -132,9 +125,8 @@ export const RUNTIME_SUBSECTIONS: { subsection: RuntimeSubsection; label: string
 export const DEFAULT_RUNTIME_SUBSECTION: RuntimeSubsection = "service";
 
 /**
- * 設定 → 共有 のタブ。公開した成果物の一覧・その公開対象から落とす名前・公開先の接続を分ける。
- * URL は `/settings/sharing` と `/settings/sharing/<sub>` を正とし、既定タブ (共有コンテンツ) はパスへ出さない。
- * 「公開の除外」は公開対象の決め方、「接続」は公開先の資格情報で、対象が別なので同じ画面のタブにする。
+ * 設定 → 共有 のタブ。公開した成果物・公開対象から落とす名前・公開先の接続を分ける。既定タブは
+ * パスへ出さず、「公開の除外」と「接続」は対象が別なのでタブにする。
  */
 export type SharingSubsection = "contents" | "exclusions" | "connections";
 
@@ -209,9 +201,8 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
 export const SETTINGS_SECTION_KEY = "u7agent-settings-section";
 
 /**
- * 保存済みの生値を検証する。未知の値 (削除したセクション等) は既定へ畳む。
- * 保存値の "archive" は 設定 → ファイル の「ダウンロードの除外」タブを指すので files へ読み替える
- * (タブまでは覚えない。URL の読み替えは lib/route.ts が持つ)
+ * 保存済みの生値を検証する。未知の値は既定へ畳み、保存値の "archive" は files の「ダウンロードの
+ * 除外」として読み替える (タブまでは覚えない。URL の読み替えは lib/route.ts)。
  */
 export function parseStoredSettingsSection(raw: string | null): SettingsSection {
   const section = raw === "archive" ? "files" : raw;

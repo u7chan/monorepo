@@ -109,8 +109,7 @@ export type PopoverShell = {
   };
   /**
    * トリガーと popover を包む要素向け。開いている間の Escape を外へ通さず、包みの外へ focus が
-   * 出たら閉じる (開いた直後の焦点がトリガーに残る画面は、Escape が popover ではなくトリガーで
-   * 起きるためこちらを使う)
+   * 出たら閉じる (開いた直後の焦点がトリガーに残る画面はこちらを使う)。
    */
   containerProps: {
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
@@ -128,12 +127,8 @@ export type PopoverShell = {
 };
 
 /**
- * native popover の「殻」。開閉の正を popover の `toggle` に置き、トリガーの押下 / Escape と矢印キー /
- * 配置の書き込み / 任意の後始末を 1 か所にまとめる。位置そのものは系統ごとの純関数
- * (`lib/popoverPlacement.ts` / `lib/agentPicker.ts` / `lib/rowMenu.ts` / `lib/selectMenu.ts`) が持ち、
- * ここは「どの系統の結果を `popover.style` へ書くか」だけを知る (計算を共有すると role と寄せ方が混ざる)。
- * 任意の要素は `options` で受け、渡されたものだけが有効になる。
- * `place` は `placeNow` の依存なので、呼び出し側で identity を固定する (毎描画で変わると配置と購読を張り直す)。
+ * native popover の「殻」。開閉の正を popover の `toggle` に置き、押下 / Escape / 矢印キー /
+ * 配置の書き込みを 1 か所にまとめる (位置は系統ごとの純関数。`place` の identity は呼び出し側で固定)。
  */
 export function usePopoverShell(place: PopoverPlace, margin: number, options: PopoverShellOptions = {}): PopoverShell {
   const { reposition, exitOnBlur, size, openFocus, openOnArrowKeys, onOpenChange } = options;
@@ -192,16 +187,18 @@ export function usePopoverShell(place: PopoverPlace, margin: number, options: Po
     triggerRef.current?.focus();
   }, []);
 
-  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (サイドバーの docked ⇄ overlay など) より先に走り、動く前の rect を読んでしまう。commit 後なら
-  // DOM は更新済みなので、ここで読む rect が新しい配置を指す
+  /**
+   * 開いている間は commit のたびに置き直す。window の resize は React の再レンダーより先に走って
+   * 動く前の rect を読むため、commit 後に読む。
+   */
   useLayoutEffect(() => {
     if (isOpen) placeNow();
   });
 
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss) もここで観測して aria-expanded へ写す。
-  // Effect ではなく ref の付け外しで購読する: status の取得前は popover を描画しない画面があり、
-  // 依存配列が空の Effect では、後から mount した popover を購読できない
+  /**
+   * 開閉の正は popover の状態。標準の close (Escape / light dismiss) も観測して aria-expanded へ写す。
+   * 購読は Effect ではなく ref の付け外し (後から mount する popover を Effect では拾えない)。
+   */
   const onToggle = useCallback((event: Event) => {
     const next = (event as ToggleEvent).newState === "open";
     setIsOpen(next);
@@ -306,9 +303,8 @@ export function usePopoverShell(place: PopoverPlace, margin: number, options: Po
   }, []);
 
   /**
-   * トリガーの ↑↓ で開く (`openOnArrowKeys: true` の画面だけ)。押したときと同じ経路 (click) を通すので、
-   * 開く前に取得や絞り込みの初期化がある画面も同じ手順になる。既定で開かないのは、矢印に
-   * 反応しないトリガーの操作を増やさないため
+   * トリガーの ↑↓ で開く (`openOnArrowKeys: true` の画面だけ)。押したときと同じ click 経路を通すので、
+   * 開く前の取得や絞り込みも同じ手順になる (既定で開かないのは操作を増やさないため)。
    */
   const onTriggerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {

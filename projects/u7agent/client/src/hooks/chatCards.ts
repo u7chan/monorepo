@@ -8,9 +8,8 @@ import type { ChatState } from "../lib/chatState";
 import { appendBubble, updateBubble } from "./chatReducerShared";
 
 /**
- * 本文なし応答のカードを、同じターンで次に確定した本文の応答へ寄せる。履歴の投影は本文なし応答の
- * ツールを同ターン内の次の表示メッセージへ繰り上げるので、ライブが古い持ち主のままだと同じ記録を
- * 読み直した表示と所有者が食い違う。本文が確定する前と、本文が現れないターンでは動かさない。
+ * 本文なし応答のカードを、同じターンで次に確定した本文の応答へ寄せる。履歴の投影も同じ位置へ
+ * 繰り上げるので、ライブが古い持ち主のままだと読み直した表示と所有者が食い違う。
  */
 export function carryToolCardsToAnswers(
   bubbles: Bubble[],
@@ -152,10 +151,8 @@ export function attachCardTo(state: ChatState, card: ToolCard, bubbleId: number)
 }
 
 /**
- * 今の run の「ツールだけの host」(まだ本文 item を引き取っていないカード)。確定履歴は本文を持たない
- * 応答のツールを同ターンの次の表示可能な本文 item へ繰り上げるため、ライブもその本文 item が現れる
- * まで 1 枚のカードに溜める。待機・未送信のエコーは host の後ろに積まれることがあるので、配列の
- * 末尾ではなく host の印で引く (配列の位置をターン境界にしない)。
+ * 今の run の「ツールだけの host」。確定履歴は同ターンの次の本文 item へ繰り上げるため、本文が
+ * 現れるまで 1 枚に溜める (待機エコーが後ろに積まれるので配列の末尾ではなく host の印で引く)。
  */
 export function toolHostOf(bubbles: Bubble[]): Bubble | undefined {
   for (let index = bubbles.length - 1; index >= 0; index -= 1) {
@@ -177,10 +174,8 @@ function markedToolHostOf(bubbles: Bubble[]): Bubble | undefined {
 }
 
 /**
- * ツールカードを溜める host を用意する (既にあれば同じカードへ積む)。host は本文 item ではないので
- * 本文の補完先 (`currentAssistantId`) にはしない。代わりに `toolTargetAssistantId` を指し、以降の
- * ツールを閉じた応答として受けられるようにする。本文を持たない応答の usage / metrics は表示する行が
- * 無いため、ここで保留値を捨てて次の本文 item の数値と混ぜない。
+ * ツールカードを溜める host を用意する (あれば同じカードへ積む)。host は本文 item ではないので
+ * `currentAssistantId` にはせず、usage / metrics は表示行が無いため保留値を捨てる。
  */
 export function ensureToolHost(state: ChatState, at?: number): { state: ChatState; id: number } {
   const existing = toolHostOf(state.bubbles);
@@ -243,10 +238,8 @@ function toolCardGroups(
 }
 
 /**
- * run が終わったターンの host を、確定履歴の item 境界へ揃えて確定する。投影は本文を持たない応答を
- * それぞれ 1 item (自分のツールだけを持つ) にするため、複数応答のツールを 1 枚にまとめたまま残すと
- * resync / F5 でヘッダーの数・件数・位置が変わってしまう。本文 item を引き取った host はそのまま
- * 1 item として確定し、ライブの印 (host) を外す。
+ * run が終わったターンの host を、確定履歴の item 境界へ揃えて確定する。複数応答のツールを 1 枚に
+ * まとめたまま残すと resync / F5 でヘッダーの数・位置が変わるため、引き取った host は印を外す。
  */
 export function settleToolHosts(state: ChatState): ChatState {
   if (!state.bubbles.some(isToolHostBubble)) return state;
@@ -331,10 +324,8 @@ function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): {
 }
 
 /**
- * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
- * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
- * focus は true のときだけ currentAssistantId を補完先へ向ける。呼び出し側は実行中かどうかで決める
- * (完了したターンを指すと、そのバブルが live 扱いのままになり履歴側のコピーが戻らない)。
+ * run のツール状態を現在ターンの assistant バブルへ反映する。補完先が無ければ保持だけし、
+ * ID で突き合わせて冪等にする (focus は実行中だけ。完了したターンへ向けると live のまま残る)。
  */
 export function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
