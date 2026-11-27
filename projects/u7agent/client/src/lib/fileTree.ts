@@ -1,7 +1,6 @@
 /**
- * ファイルツリーの状態更新 (開閉・子のマージ・エラー保持)。DOM に依存しない純関数だけを置き、
- * 取得の起動と描画は FileBrowser が担う。キーは root 相対パスで、root が "." のときはワークスペース root。
- * ページの root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
+ * ファイルツリーの状態更新 (開閉・子のマージ・エラー保持)。DOM に依存せず、取得の起動と描画は
+ * FileBrowser が担う。キーは root 相対パス (docs/file-tree.md)。
  */
 import type { FileEntry } from "../types";
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
@@ -82,9 +81,8 @@ export function createFileTreeStateFromDirectories(dirs: string[]): FileTreeStat
 }
 
 /**
- * 面ごとに隠す行を名前で除く。種別は見ない (submodule の `.git` はファイル)。`hiddenNames` が空なら
- * 一覧をそのまま返し、隠す面 (チャット右パネル) 以外の表示を変えない。階層は問わない (呼び出し側の一覧は
- * その階層の子だけなので、名前一致がそのまま全階層の一致になる)。
+ * 面ごとに隠す行を名前で除く (種別は見ない。階層は問わない)。`hiddenNames` が空なら一覧を
+ * そのまま返し、隠す面以外の表示を変えない。
  */
 export function visibleFileTreeEntries(entries: FileEntry[], hiddenNames: readonly string[]): FileEntry[] {
   if (hiddenNames.length === 0) return entries;
@@ -151,9 +149,8 @@ export function fileTreeBreadcrumbs(path: string): { label: string; path: string
 }
 
 /**
- * path の祖先ディレクトリを開いた状態へ変える (reveal 用)。取得済みの子・loading・error はそのまま保つ。
- * 未取得の祖先は open だけを立てて作り、取得は既存の pendingFileTreeDirectories の経路に任せる。
- * 変える祖先が無ければ同じ object を返す。
+ * path の祖先ディレクトリを開いた状態へ変える (reveal 用)。取得済みの子・loading・error は保ち、
+ * 未取得の祖先は open だけ立てて取得は pendingFileTreeDirectories に任せる。
  */
 export function openFileTreeAncestors(state: FileTreeState, path: string): FileTreeState {
   const ancestors = fileTreeAncestorPaths(path);
@@ -204,11 +201,8 @@ export function fileTreeRenameRequest(path: string, currentName: string): Prompt
 }
 
 /**
- * リネームしたエントリを新しい名前へ張り替える。親一覧の children の name を差し替え、
- * 配下の state キーを nextPath へ移す。開閉と取得済みの子はそのまま残し、親の再取得はしない。
- * 取得中 (loading) は落とす: 飛んでいた一覧は旧キーへ着地するため、持ち越すと新しいキーが
- * 「読み込み中」のまま固定され、pendingFileTreeDirectories が拾わなくなる。
- * 接頭辞は区切りまで含めて見るため、`a` の改名で `ab` を巻き込まない。
+ * リネームしたエントリを新しい名前へ張り替える (配下のキーも移し、開閉と取得済みの子は残す)。
+ * 取得中の一覧は旧キーへ着地するので落とす。接頭辞は区切りまで見て `a` の改名で `ab` を巻き込まない。
  */
 export function renameFileTreeEntry(state: FileTreeState, path: string, nextPath: string): FileTreeState {
   if (path === nextPath) return state;
@@ -239,9 +233,8 @@ export function renameFileTreeEntry(state: FileTreeState, path: string, nextPath
 }
 
 /**
- * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、
- * 展開中の子孫や他のディレクトリの状態はそのまま残る (ファイルを消しても親の再取得は不要)。
- * 該当行を持つ一覧が無いときは同じ object を返す。
+ * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、展開中の子孫と
+ * 他のディレクトリの状態は残る (該当行が無ければ同じ object を返す)。
  */
 export function removeFileTreeEntry(state: FileTreeState, path: string): FileTreeState {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -256,9 +249,8 @@ export function removeFileTreeEntry(state: FileTreeState, path: string): FileTre
 }
 
 /**
- * 削除したディレクトリ自身と配下の状態を落とす。親一覧の行は removeFileTreeEntry が落とすので、
- * ここでは path とその子孫だけを見て、他のディレクトリの開閉・取得結果はそのまま残す。
- * 接頭辞は区切りまで含めて見るため、`a` の削除で `ab` を巻き込まない。該当が無いときは同じ object を返す。
+ * 削除したディレクトリ自身と配下の状態を落とす (親一覧の行は removeFileTreeEntry が落とす)。
+ * 接頭辞は区切りまで見て `a` の削除で `ab` を巻き込まない。
  */
 export function pruneFileTreeSubtree(state: FileTreeState, path: string): FileTreeState {
   const prefix = `${path}/`;
