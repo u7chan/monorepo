@@ -15,11 +15,8 @@ export type MenuItemProps = {
    */
   descriptionKind?: RowMenuDescriptionKind;
   /**
-   * 選択の表現。nav = ページの選択 (塗り)、list = 一覧の項目の選択 (淡い塗り)、
-   * choice = 択一の一覧 (枠 + 選択のチェック)、add = 追加アクション (破線)。
-   * 塗りと淡い塗りを分けるのは、どちらがページでどちらが項目かを一目で見分けるため。
-   * choice だけ枠とチェックを持つのは、選択の淡い塗りだけでは行の範囲が地に埋もれ、
-   * 押せる行かどうかが一目で分からないため。
+   * 選択の表現。nav = ページの選択 (塗り)、list = 一覧の項目 (淡い塗り)、choice = 択一 (枠 + チェック)、
+   * add = 追加 (破線)。choice だけ枠とチェックを持つのは、淡い塗りだけでは押せる行か分からないため。
    */
   variant?: "nav" | "list" | "choice" | "add";
   selected?: boolean;

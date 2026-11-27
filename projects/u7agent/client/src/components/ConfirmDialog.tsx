@@ -12,9 +12,8 @@ export type ConfirmDialogProps = {
 };
 
 /**
- * 共通の確認ダイアログ。モーダル dialog の標準挙動 (背面の inert 化 / Tab の拘束 / Escape での終了) に任せ、
- * 開く前に当たっていた要素へ焦点を戻す（`ProjectDialog` と同じ作法）。
- * 対象名は clamp した独立した行に出し、全文は `title` 属性で読めるようにする。
+ * 共通の確認ダイアログ。モーダルの標準挙動に任せ、開く前に当たっていた要素へ焦点を戻す。対象名は
+ * clamp した独立した行に出し、全文は `title` 属性で読めるようにする。
  */
 export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogProps) {
   const shellRef = useRef<ModalDialogHandle | null>(null);

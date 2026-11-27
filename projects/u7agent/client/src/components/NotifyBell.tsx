@@ -14,9 +14,8 @@ function sparklePath(cx: number, cy: number, radius: number): string {
 }
 
 /**
- * トグルのベル。On の間は鳴っている印を出し、押して On にした瞬間だけ一度鳴る。
- * 鳴るかどうかを決めるのは `ring` (操作の世代) だけで、`ringing` の立ち上がりでは鳴らさない
- * (会話の切替 / リロード / deep link の解決でも値は On へ上がる。docs/notifications.md が正)。
+ * トグルのベル。On の間は鳴っている印を出し、押して On にした瞬間だけ一度鳴らす。鳴るかは `ring`
+ * (操作の世代) だけで決め、`ringing` の立ち上がりでは鳴らさない (docs/notifications.md が正)。
  */
 export function NotifyBell({ ringing, ring }: { ringing: boolean; ring: number }) {
   const [state, setState] = useState<NotifyBellState>(() => initialNotifyBellState(ring));

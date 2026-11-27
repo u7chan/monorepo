@@ -36,12 +36,8 @@ export type FileTreePageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → ファイル。root は選択中セッション / プロジェクトに追随させず、常にワークスペース root (`cwd=""`) に
- * 固定する (同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる)。ツリーとプレビューの本体は
- * `FileBrowser` で、チャットの右パネル (`SessionFilesPanel`) と共有する。ヘッダは画面幅いっぱいに使う。
- *
- * ダウンロードの除外はツリーの行のダウンロード導線と対になる設定なので、独立したセクションにせず、同じ画面の
- * タブ (`/settings/files/archive`) に置く (hook / API が別でも対象は同じ。lib/settingsNav.ts のタブの規則)。
+ * 設定 → ファイル。root は選択に追随させず常にワークスペース root に固定する (同じ画面が別の場所を
+ * 指すと分からなくなる)。ダウンロードの除外は行の導線と対になるので、同じ画面のタブに置く。
  */
 export function FileTreePage({
   cwd,
