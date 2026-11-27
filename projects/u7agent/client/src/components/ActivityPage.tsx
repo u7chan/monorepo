@@ -50,10 +50,8 @@ const GROUP_DOT: Record<ActivityKind, string> = {
 };
 
 /**
- * 全スペース横断の実行状況。行の単位は会話 (sessionId) で、進行中 (回答待ち / 処理中) と直近 120 分の
- * 終了を 1 画面に出す。区分・件数・並び・経過時間の文字列は lib/activity、上部のサービス行と行の操作は
- * lib/activityServe を正とする。サービス状態は `/activity` を表示している間だけ 4 秒で回す。
- * 経過時間は 1 秒ごとにクライアントで進める (一覧の 4 秒ポーリングとは独立。読み上げの live region にしない)。
+ * 全スペース横断の実行状況。行の単位は会話で、進行中と直近 120 分の終了を 1 画面に出す (区分・件数・
+ * 並び・経過時間は lib/activity、サービス行は lib/activityServe が正。経過時間は live region にしない)。
  */
 export function ActivityPage({
   sessions,

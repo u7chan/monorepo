@@ -82,9 +82,8 @@ export async function ensureOk(response: Promise<Response>): Promise<Response> {
 }
 
 /**
- * `ensureOk` の後に本文を JSON として読む。`T` には成功の応答の DTO（正は `types.ts`）を置く。
- * hc の `json()` が成功と失敗の応答の union を返す endpoint だけが使う。union が残らない endpoint は
- * `ensureOk` の戻り値に `res.json()` を直に当て、宣言した戻り値型との照合を残す。
+ * `ensureOk` の後に本文を JSON として読む (`T` は成功の応答の DTO。正は `types.ts`)。hc の `json()` が
+ * 成功と失敗の union を返す endpoint だけが使い、union が残らない endpoint は `res.json()` を直に当てる。
  */
 export async function read<T>(response: Promise<Response>): Promise<T> {
   const res = await ensureOk(response);

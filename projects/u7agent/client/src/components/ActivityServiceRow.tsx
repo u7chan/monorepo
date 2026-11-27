@@ -4,9 +4,8 @@ import { sessionEntryHref } from "../lib/route";
 import { ExternalLinkIcon, RunSpinnerIcon, StopIcon } from "./icons";
 
 /**
- * 実行状況の上部に出す「公開中のサービス」1 行。公開枠は全会話で共有の 1 本なので、状態・起動元の会話・
- * 起動コマンド・作業ディレクトリ・待受を 1 行にまとめ、`開く` と `停止` を置く。取得できない間は
- * リンクも操作も出さない (状態を「停止中」へ丸めない)。状態の決定は lib/activityServe を正とする。
+ * 実行状況の上部に出す「公開中のサービス」1 行。公開枠は全会話で共有の 1 本なので、状態・起動元・
+ * コマンド・ディレクトリ・待受を 1 行にまとめる。取得できない間はリンクも操作も出さない。
  */
 export type ActivityServiceRowProps = {
   view: ActivityServiceView;

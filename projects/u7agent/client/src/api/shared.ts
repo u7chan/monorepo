@@ -78,9 +78,8 @@ export const renameSharedContent = async (id: string, name: string): Promise<Sha
 };
 
 /**
- * サムネイルの保存（差し替え）。本文は PNG の実バイトを raw で送る（JSON にしない）。
- * hc は JSON 本文を前提にするため、raw を送るこの 1 本だけ fetch を使う。
- * 公開状態を見ないので、公開処理中でも送れる。
+ * サムネイルの保存 (差し替え)。本文は PNG の実バイトを raw で送るため、JSON 前提の `hc` ではなく
+ * fetch を使う (公開状態を見ないので公開処理中でも送れる)。
  */
 export const putSharedContentThumbnail = (id: string, bytes: Uint8Array) =>
   read<SharedContentThumbnailResponse>(
