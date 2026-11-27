@@ -12,14 +12,8 @@ export type FoldProps = {
 };
 
 /**
- * 高さの開閉 (styles/index.css の `.tree-fold`)。`data-open` で grid の行を 0fr → 1fr へ動かし、
- * 畳んだ中身は親の高さ 0 で潰す。
- *
- * 中身は開いた commit で mount し、閉じた後も遷移が終わるまで残す。閉じ切る前に unmount すると
- * 1fr → 0fr が走らず、閉じる側だけ瞬時に消えるため。`details::details-content` の遷移と違って
- * `interpolate-size` に依らないので、Safari でも開く (docs/frontend.md#コンポーネントの契約)。
- *
- * 閉じている間は inert にして、高さ 0 で見えない中身をフォーカスと読み上げの対象に残さない。
+ * 高さの開閉 (styles/index.css の `.tree-fold`)。`data-open` で 0fr → 1fr へ動かし、中身は閉じた後も
+ * 遷移が終わるまで残す (先に unmount すると閉じる側だけ瞬時に消える)。閉じている間は inert にする。
  */
 export function Fold({ open, className, keepMounted = false, children }: FoldProps) {
   const [present, setPresent] = useState(open);

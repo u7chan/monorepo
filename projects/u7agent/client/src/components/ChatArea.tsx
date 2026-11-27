@@ -156,11 +156,10 @@ export function ChatArea({
   // 生成カードと画像・プレイヤーのバブルが分かれる履歴でも対応が取れるよう、ターン単位で対応付ける
   const generationCaptions = useMemo(() => generationCaptionsOf(bubbles, { rootCwd, cwd }), [bubbles, rootCwd, cwd]);
 
-  // 可変高さ (Markdown / ツール履歴 / 折りたたみ要約) を計測し、可視範囲 + overscan だけ DOM に載せる。
-  // アイテムは entry id をキーにし、古いページを前置きしても同じ DOM を再利用する。
-  // 画面より上で伸縮したアイテムの scrollTop 補正は virtual-core の既定 (anchorTo: "start") が担う。
-  // 計測を rAF へずらし、ResizeObserver callback 内の同期レイアウト変更による
-  // "ResizeObserver loop completed with undelivered notifications" を避ける
+  /**
+   * 可変高さを計測し、可視範囲 + overscan だけ DOM に載せる。アイテムは entry id をキーにし、
+   * 計測は rAF へずらす (ResizeObserver callback 内の同期レイアウトで警告になるため)。
+   */
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => chatAreaRef.current,

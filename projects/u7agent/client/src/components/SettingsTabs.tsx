@@ -3,10 +3,7 @@ import { cn } from "../lib/cn";
 
 /**
  * 設定ページのタブ行 (`role="tablist"`)。表示の正は URL で、選択中の値と切替の要求だけを受け取る。
- * singleColumn では横スクロールする行の選択中タブを可視域へ入れる。
- * `dense` は 248px の一覧列のように、タブが入り切らない狭い面に置くときの詰めた余白。
- * `ariaLabel` / `mark` / `accentMark` は未指定なら今までどおり描く（読み上げ名を変える画面、
- * 警告の印を出す画面、実行中を示す accent の点を出す画面だけが使う）。
+ * `dense` はタブが入り切らない狭い面用。`ariaLabel` / `mark` / `accentMark` は指定した画面だけが使う。
  */
 export function SettingsTabs<T extends string>({
   items,

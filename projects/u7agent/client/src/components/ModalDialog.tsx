@@ -49,10 +49,8 @@ export type ModalDialogProps = {
 };
 
 /**
- * 中央モーダルの殻。native `<dialog>` の標準挙動 (背面の inert 化 / Tab の拘束 / 焦点の復帰) の上に、
- * 出入りのアニメ (`data-closing` と `useExitPhase`) と閉じる要求の 1 経路を載せる。
- * 退場は「親が unmount する前に `onClosed` を待つ」形で作るので、呼び出し側の `onClose` は
- * 閉じる操作ではなく**閉じ切った後**の後片付けとして扱う。
+ * 中央モーダルの殻。native `<dialog>` の標準挙動に出入りのアニメと閉じる要求の 1 経路を載せる。
+ * `onClosed` は閉じ切った後の後片付けとして扱う (退場は親の unmount 前に待つ)。
  */
 export function ModalDialog({
   label,

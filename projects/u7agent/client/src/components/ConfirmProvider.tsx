@@ -13,11 +13,8 @@ type Pending = { id: number; request: DialogRequest; resolve: (value: string | n
 const DialogContext = createContext<DialogApi | null>(null);
 
 /**
- * 共通の確認ダイアログをアプリ全体へ 1 つだけ置く。UI を持たないフック (`useSessions` / `useU7Agent`) からも
- * 同じ部品を使えるよう、`confirm()` は Promise を返し、Promise を返す点は `confirm` / `prompt` で揃える。
- * 文言とボタン名は呼び出し側が lib の純関数で組み立てる (`lib/confirmDialog.ts`)。
- * モーダルは 1 つだけ出し、開いている間の要求は待ち行列へ積む (`lib/dialogQueue.ts`。先の要求を
- * 未解決のまま捨てると、呼び出し側の `finally` が走らない)。
+ * 共通の確認ダイアログをアプリ全体へ 1 つだけ置く。`confirm()` は Promise を返し (confirm / prompt で
+ * 揃える)、モーダルは 1 つだけ出して開いている間の要求は待ち行列へ積む。
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [queue] = useState(() => createDialogQueue<Pending>());
