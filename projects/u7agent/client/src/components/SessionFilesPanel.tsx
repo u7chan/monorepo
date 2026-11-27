@@ -108,9 +108,10 @@ function SessionFilesContent({
     setShareSessionId(envScope.sessionId);
     setShareTarget(null);
   }
-  // ヘッダの「再読み込み」・run_end・アップロードの完了を 1 つの token にまとめる。どれも単調なので、合計が
-  // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
-  // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)
+  /**
+   * 「再読み込み」・run_end・アップロード完了を 1 つの token にまとめ、合計が変わったときだけ取り直す。
+   * 描画間の runStatus は使わない (同じバッチの run_start / run_end で取りこぼす)。
+   */
   const reloadToken = manualReload + runEndSeq + uploadReload;
   // root が属する repo のブランチ。一覧と同じ合図 (再読み込み / run 終了 / アップロードの完了) で取り直す
   const branch = useGitBranch(root, reloadToken);
@@ -296,9 +297,8 @@ function SessionFilesResizeHandle({
 }
 
 /**
- * スキル面 (チャットから開く読み取り専用のツリー)。root は要求のたびに 1 つだけ持ち、切替は呼び出し側の
- * `key` が remount する。設定 → スキルのファイルタブと同じ見え方を使うが、一覧 (GET /api/skills/files)
- * を引かずに root と path だけで開く (作成直後でも開ける。docs/api-catalog.md)。
+ * スキル面 (チャットから開く読み取り専用のツリー)。root は 1 つだけ持ち、切替は呼び出し側の `key`
+ * が remount する。一覧を引かず root と path だけで開くので作成直後でも開ける。
  */
 export function SkillFilesContent({
   root,
@@ -470,9 +470,10 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
   return (
     <dialog
       ref={dialogRef}
-      // onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける。
-      // 子孫の dialog (ファイルプレビューの全画面) の close / cancel は React の合成イベントでここまで泡立つので、
-      // 自分の dialog の分だけを受ける (受けると内側を閉じた 1 回でシートまで閉じる)
+      /**
+       * onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける。子孫の
+       * dialog の close / cancel も泡立つので、自分の分だけを受ける (受けると内側を閉じた 1 回で閉じる)。
+       */
       onClose={(event) => {
         if (event.target !== event.currentTarget) return;
         props.onClose();
