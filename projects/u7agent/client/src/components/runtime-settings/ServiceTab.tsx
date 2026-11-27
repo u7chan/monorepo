@@ -9,9 +9,8 @@ import { RuntimeServiceCard } from "../RuntimeServiceCard";
 import { RuntimeTabLayout, type RuntimeTabProps } from "./RuntimeTabLayout";
 
 /**
- * 設定 → ランタイム の「サービス」面。公開中のサービスの確認・停止と、公開 URL を組む health、
- * デバッグ用 (18000 帯) の一覧・強制停止を持つ。取得は別系統に分け、デバッグの失敗で公開カードを壊さない。
- * 4 秒ポーリングはこの面が mount されている間だけ動く。
+ * 設定 → ランタイムの「サービス」面。公開中のサービスの確認・停止、公開 URL を組む health、
+ * デバッグ用 (18000 帯) の一覧・強制停止を持つ。取得は別系統に分け、デバッグの失敗で壊さない。
  */
 export function ServiceTab({
   health,

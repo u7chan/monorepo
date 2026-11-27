@@ -17,9 +17,8 @@ export type CredentialTabsProps = {
 };
 
 /**
- * プロバイダー詳細の認証方法のタブ行。既存の `SettingsTabs` (URL が正) とは別に、この画面の
- * ローカル状態で切り替える。`role` / `aria-label` / `aria-selected` は同じ水準に揃え、
- * `aria-controls` と矢印キーは入れない (入れ子の `role="tablist"` を浅く保つ)。
+ * プロバイダー詳細の認証方法のタブ行。`SettingsTabs` (URL が正) とは別にローカル状態で切り替える。
+ * `role` / `aria-label` / `aria-selected` は揃え、`aria-controls` と矢印キーは入れない (浅く保つ)。
  */
 export function CredentialTabs({ view, active, providerName, onSelect }: CredentialTabsProps) {
   const items: readonly {
