@@ -1,4 +1,4 @@
-// 実行中の thinking 末尾を状態行の下の 2 行領域へ収める規則。末尾 2 行・160 code point・空行の除去を固定する。
+// 実行中の thinking 末尾を状態行の上の 2 行領域へ収める規則。末尾 2 行・160 code point・空行の除去を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { liveThoughtSnippet, THINKING_SNIPPET_CHARS, THINKING_SNIPPET_LINES } from "../src/lib/liveThinking";

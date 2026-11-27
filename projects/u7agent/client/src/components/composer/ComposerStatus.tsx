@@ -168,7 +168,7 @@ export function ComposerStatus({
    */
   activityState?: string;
   /**
-   * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の下の固定領域に出す
+   * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の上の固定領域に出す
    */
   thinkingText?: string;
   /** 送信の通信中。状態行が「送信中…」を出すため、圧縮と再実行の理由行は出さない */
