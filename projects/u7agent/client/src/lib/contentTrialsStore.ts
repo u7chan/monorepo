@@ -1,7 +1,6 @@
 /**
- * 設定 → コンテンツ生成の試行の state と操作。DOM に依存させず、一覧の取得順・注記・実行中の判定を
- * `client/src/hooks/useContentTrials.ts` から切り離してテストできるようにする。
- * 一覧は画面が開いている間だけ取り、実行中の試行がある間は呼び出し側がポーリングする。
+ * 設定 → コンテンツ生成の試行の state と操作。DOM に依存させず、取得順・注記・実行中の判定を
+ * `hooks/useContentTrials.ts` から切り離してテストできるようにする。
  */
 import type { ContentSubsection } from "./settingsNav";
 import type {
@@ -86,10 +85,8 @@ export interface ContentTrialsQuery {
 }
 
 /**
- * 一覧の取得と試行の操作。**一覧の応答は要求の世代で捨てる**（遅い応答で表示を戻さない）。
- * 開始 / 中断は一覧の取得より新しい状態を生むため、応答を適用する前に世代を進める
- * （取得の開始後に始めた試行が、その取得の応答で消えないようにする）。
- * 一覧は種別ごとのページと、全種別の実行中の行を重ねて持つ（実行中のポーリングは `running` だけを取る）。
+ * 一覧の取得と試行の操作。一覧の応答は要求の世代で捨て、開始 / 中断は適用前に世代を進める
+ * (取得の開始後に始めた試行が、その取得の応答で消えないようにする)。
  */
 export function createContentTrialsController(deps: {
   list: (query: ContentTrialsQuery) => Promise<ContentTrialListResponse>;
@@ -182,10 +179,8 @@ export function createContentTrialsController(deps: {
   };
 
   /**
-   * 実行中の行を重ねる。`settle`（ポーリング）のときは、実行中だった行が応答から消えたら終端した
-   * （または削除された）とみなして `GET /trials/:id` で確定させる（要約のままだと実行中のまま残り、
-   * 履歴が欠ける）。選択行の全文も同じ経路で取り直し、`recorded` の再試行と状態を追随させる。
-   * 一覧の取得では、ページ外の古い行を巻き込まないよう確定させない。
+   * 実行中の行を重ねる。`settle` のとき、実行中だった行が応答から消えたら終端とみなして
+   * `GET /trials/:id` で確定させる (要約のままだと実行中のまま残り履歴が欠ける)。
    */
   const applyRunning = async (generation: number, options: { settle: boolean }): Promise<void> => {
     const response = await deps.listRunning();

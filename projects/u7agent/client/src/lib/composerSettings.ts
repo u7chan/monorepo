@@ -31,9 +31,8 @@ const orderRank = (level: string): number => {
 };
 
 /**
- * そのモデルが扱えない段階を、扱える段階へ寄せる。規則は pi-ai の clampThinkingLevel と同じ
- * (要求より上へ探し、見つからなければ下へ探す) で、未作成チャットの表示を作成時の実効値に先に揃える。
- * ブラウザにはモデルの実体が無く候補の段階だけを受け取るため、SDK の clampThinkingLevel は使えない。
+ * そのモデルが扱えない段階を扱える段階へ寄せる (pi-ai の clampThinkingLevel と同じく上→下へ探す)。
+ * ブラウザにモデルの実体が無いため SDK の clamp は使えず、同じ規則をここに持つ。
  */
 export function clampEffortLevel(level: ThinkingLevel | undefined, levels: ThinkingLevel[]): ThinkingLevel | undefined {
   if (!level || levels.includes(level)) return level;
@@ -100,9 +99,8 @@ export type ComposerSettingsInput = {
 };
 
 /**
- * 手動圧縮の実効 busy。集合は `sessionBusy` が正で、ここは圧縮の可否という意味を名前で残すだけ。
- * `statusOf` は streaming を running として返し、idle 相当でも completed / stopped / error を返すため、
- * runStatus === "idle" では判定できない。
+ * 手動圧縮の実効 busy。集合の正は `sessionBusy` で、ここは圧縮の可否という意味を名前で残すだけ
+ * (`statusOf` は idle 相当でも completed / stopped / error を返すため runStatus では判定できない)。
  */
 export function compactionBusy(runStatus: string): boolean {
   return sessionBusy(runStatus);
@@ -141,9 +139,10 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   const model = inSession ? chat.sessionModel : pendingModel;
   const option = findOption(model);
   const pendingLevels = option?.thinkingLevels ?? ALL_THINKING_LEVELS;
-  // 情報源 (作成前の選択 → 定義 → アプリ既定) の値がモデルの段階に無いことがある。作成時に SDK が
-  // 寄せる値と同じものを見せるため clamp し、選べない段階を Effort の候補へ混ぜない。
-  // セッションの実効値は SDK が補正済みなので触らない。
+  /**
+   * 情報源の値がモデルの段階に無いことがある。作成時に SDK が寄せる値と同じものを見せるため clamp し、
+   * 選べない段階を Effort の候補へ混ぜない (セッションの実効値は SDK が補正済みなので触らない)。
+   */
   const pendingThinkingLevel = clampEffortLevel(
     preselection.thinkingLevel ?? selectedAgent?.thinkingLevel ?? health?.defaultThinkingLevel,
     pendingLevels,

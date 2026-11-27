@@ -90,9 +90,8 @@ export function skillBodyMetaLabel(text: string): string {
 }
 
 /**
- * プレビューに渡す本文。先頭の YAML frontmatter は、名前と説明というアプリのメタデータで、
- * ヘッダと説明欄に既に出ているため、本文のプレビューでは落とす (原文はソース表示で読める)。
- * 閉じの無いものや行内で閉じているものは frontmatter とみなさず、そのまま渡す。
+ * プレビューに渡す本文。先頭の YAML frontmatter は名前と説明でヘッダに出ているため落とす
+ * (原文はソース表示で読める)。閉じの無い / 行内で閉じるものは frontmatter とみなさない。
  */
 export function skillBodyPreviewText(text: string): string {
   const match = text.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
@@ -194,9 +193,8 @@ export function skillImportDoneNote(applied: number, skipped: number): string {
 }
 
 /**
- * ファイルタブの root にできるスキルディレクトリ (root 相対)。組み込みは実体の無い仮想パス、root の外は
- * 絶対パスで返るため、どちらもここで落とす。判定は normalizeFileTreeRoot より前に行う (絶対パスは
- * "." へ畳まれ、ワークスペース root を見せてしまう)。
+ * ファイルタブの root にできるスキルディレクトリ (root 相対)。組み込みの仮想パスと root の外は
+ * ここで落とし、判定は normalizeFileTreeRoot より前に行う (絶対パスは "." へ畳まれる)。
  */
 export function fileSkillDir(skill: Pick<FileSkillInfo, "scope" | "relativePath">): string | null {
   if (skill.scope === "builtin") return null;
@@ -233,9 +231,8 @@ export function fileSkillWarning(skill: FileSkillInfo): string | null {
 }
 
 /**
- * 本文のコードスパンがスキルディレクトリ配下のファイルを指すか。指すなら skill dir 相対のパスを返す。
- * 字句判定だけ (実在は開いたときに FileBrowser が確かめる) で、裸名と root 外の絶対パスは採らない
- * (本文のありふれたコードスパンをリンクにしないため。規則は chat のファイル参照と同じ)。
+ * 本文のコードスパンがスキルディレクトリ配下のファイルを指すか (指すなら skill dir 相対を返す)。
+ * 字句判定だけで、裸名と root 外の絶対パスは採らない (ありふれたコードスパンをリンクにしない)。
  */
 export function skillFileRefPath(raw: string): string | null {
   // 本文は `scripts/run.sh --depth 3` のように「パス + 引数」で書かれることが多いので、先頭の 1 語だけを

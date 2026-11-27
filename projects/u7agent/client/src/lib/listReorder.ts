@@ -1,7 +1,6 @@
 /**
- * 設定の一覧（エージェント / 定型プロンプト / 会話スペース / 環境変数）をグリップで並べ替える計算。
- * 判定だけをここへ置き、DOM の読み書き（行の追従・自動スクロール・pointer capture）は
- * `hooks/useReorderDrag.ts` が持つ。
+ * 設定の一覧をグリップで並べ替える計算。判定だけをここへ置き、DOM の読み書き (行の追従・
+ * 自動スクロール・pointer capture) は `hooks/useReorderDrag.ts` が持つ。
  */
 
 /** 押しただけ（行の選択 / タップ）と区別する移動量。これ未満では掴んでいない */
@@ -106,9 +105,8 @@ export type ScrollCandidate = {
 };
 
 /**
- * 実際にスクロールしている祖先を返す。900px 以上では一覧の内部、狭いときはページ 1 本なので、
- * 固定の枠ではなく祖先を辿って決める。一覧が短く内部スクロールが起きていないときは null になり、
- * 呼び出し側はページ（document.scrollingElement）へ落ちる。
+ * 実際にスクロールしている祖先を返す。900px 以上では一覧の内部、狭いときはページ 1 本なので固定の
+ * 枠ではなく祖先を辿る (短い一覧では null で、呼び出し側が document.scrollingElement へ落ちる)。
  */
 export function scrollableAncestor<T extends ScrollCandidate>(start: T | null): T | null {
   // 親を辿る間だけ T を保証できない (親も同じ形だが、型では縛れない)
@@ -120,9 +118,8 @@ export function scrollableAncestor<T extends ScrollCandidate>(start: T | null): 
 }
 
 /**
- * ドラッグ開始時に捕捉した id の並びへ、いまの行を割り当てる。1 つでも見つからなければ null。
- * 削除などで行の集合が変わると、捕捉した添字と DOM の行がずれて掴んだ行を見つけられなくなる
- * (挿入先も 1 つずれる) ため、呼び出し側はその時点でドラッグを取り消す。
+ * ドラッグ開始時に捕捉した id の並びへ、いまの行を割り当てる (1 つでも見つからなければ null)。
+ * 行の集合が変わると添字がずれるため、呼び出し側はその時点でドラッグを取り消す。
  */
 export function alignCapturedRows<T>(captured: readonly string[], byId: ReadonlyMap<string, T>): T[] | null {
   const rows: T[] = [];
