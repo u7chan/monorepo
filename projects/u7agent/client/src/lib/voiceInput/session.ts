@@ -1,7 +1,6 @@
 /**
- * 録音 1 回分の Realtime 文字起こしの状態機械。接続 → 録音 → 停止 → commit → 確定 を 1 つの phase で持ち、
- * DOM に依存しない（マイク・peer・期限 worker・セッション要求は platform として注入する）。
- * ブラウザ向けの実体は `./browser.ts`、画面の状態は `./playground.ts`。
+ * 録音 1 回分の Realtime 文字起こしの状態機械。接続 → 録音 → 停止 → commit → 確定 を 1 つの phase で
+ * 持ち、DOM に依存しない (マイク・peer・期限 worker は platform として注入する)。
  */
 
 /** 録音の上限。手動停止でも 120 秒を超えて録音しない */

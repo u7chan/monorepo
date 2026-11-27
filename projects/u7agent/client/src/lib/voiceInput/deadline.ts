@@ -1,9 +1,8 @@
 import type { VoiceInputAudioDeadline } from "./session";
 
 /**
- * 期限後に音声フレームを落とす仕組み（`client/src/workers/voiceAudioDeadline.ts`）を画面側から作る。
- * ブラウザでは期限の強制を worker に任せるが、`RTCRtpScriptTransform` を持たないブラウザでは作らない。
- * API 層に依存させないのは、worker を作らない分岐を Node のテストから固定するため。
+ * 期限後に音声フレームを落とす仕組みを画面側から作る。ブラウザでは期限の強制を worker に任せるが、
+ * `RTCRtpScriptTransform` を持たないブラウザでは作らない (分岐を Node のテストから固定するため)。
  */
 export function makeVoiceInputAudioDeadline(onError: () => void): VoiceInputAudioDeadline {
   if (!voiceInputFrameDeadlineSupported()) return { attach: () => {}, arm: () => {}, close: () => {} };

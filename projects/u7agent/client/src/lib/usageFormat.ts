@@ -100,10 +100,8 @@ const WARN_PERCENT = 70;
 const DANGER_PERCENT = 90;
 
 /**
- * Composer の context ゲージ。セッションが未作成の間 (チャット開始前) は使用量も分母も
- * 分からないため undefined を返してゲージごと出さない。compaction 直後 (tokens: null) だけは
- * 「不明」として出し、百分率を ? にする。
- * バーは文字ではなく CSS で描く (ブロック要素グリフは端末のフォント次第で崩れる)。
+ * Composer の context ゲージ。セッションが未作成の間は使用量も分母も分からないため undefined を返して
+ * ゲージごと出さない。compaction 直後 (tokens: null) だけは「不明」として出し、百分率を ? にする。
  */
 export function contextGauge(context?: ContextUsage): ContextGauge | undefined {
   if (!context || context.contextWindow <= 0) return undefined;

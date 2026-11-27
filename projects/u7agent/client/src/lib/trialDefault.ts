@@ -19,9 +19,8 @@ import type {
 } from "../types";
 
 /**
- * 画像の試行のモデルとパラメータを既定にする対象。試行と同じ（モデルもパラメータも保存値と同じ）ときと、
- * カタログから本文を作れない（選択肢に無い・宣言の外の値）ときは null にして導線を出さない
- * （押しても保存できないボタンを作らない）。
+ * 画像の試行のモデルとパラメータを既定にする対象。試行が保存値と同じときと、カタログから本文を作れない
+ * ときは null にして導線を出さない (押しても保存できないボタンを作らない)。
  */
 export function imageTrialDefaultTarget(input: {
   settings: Pick<ContentSettingsResponse, "provider" | "image">;

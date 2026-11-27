@@ -22,9 +22,8 @@ export function toolDurationMs(call: ToolInterval): number | undefined {
 }
 
 /**
- * カード列の合計実行時間。ツールは並列でも走るため、重なった区間を 1 回だけ数える
- * (単純な和は並列実行で実経過より大きくなる)。1 枚でも区間が閉じていなければ、過小な合計を
- * 出さないよう undefined を返す (停止・中止で `tool_execution_end` が来なかったカードがある)。
+ * カード列の合計実行時間。ツールは並列でも走るため重なった区間を 1 回だけ数える (単純な和は実経過より
+ * 大きくなる)。1 枚でも区間が閉じていなければ、過小な合計を出さないよう undefined を返す。
  */
 export function toolTimeTotalMs(cards: readonly ToolInterval[]): number | undefined {
   const intervals: ToolTiming[] = [];
