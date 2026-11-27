@@ -39,9 +39,8 @@ export type AgentForm = {
   description: string;
   systemPrompt: string;
   /**
-   * 共通スキル (`.agents/skills`) の許可リスト。undefined = 未指定 (全可視で、保存ではキーを送らない)、
-   * null = 全可視へ戻す送信専用の解除、配列 = 明示リスト ([] はすべて OFF)。
-   * `agentFormOf` は null を作らない (解除は「すべて既定に戻す」の 1 経路だけ)。
+   * 共通スキル (`.agents/skills`) の許可リスト。undefined = 未指定 (保存ではキーを送らない)、null =
+   * 全可視へ戻す送信専用の解除、配列 = 明示リスト (`[]` はすべて OFF)。`agentFormOf` は null を作らない。
    */
   commonSkillNames?: string[] | null;
   /**

@@ -24,10 +24,8 @@ export type WorkFolderPathMenuProps = {
 };
 
 /**
- * 作業フォルダ面の帯のパス表示と ⋯。パスと ⋯ は 1 つの折り返さない組にして、組の幅 (省略前の
- * パス全体 + ⋯) を帯の文脈の最小幅へ渡す。収まらない幅では組ごと全幅の段へ落ちるので、短いパスを
- * 省略しない。`useMessageCopy` と結果表示もこの部品が所有し、呼び出し側が `sessionId` を key に
- * して remount する (同じ cwd の会話切替ではパネルが remount されないため)。
+ * 作業フォルダ面の帯のパス表示と ⋯。2 つを折り返さない組にして組の幅を帯へ渡し、収まらない幅では
+ * 組ごと全幅の段へ落とす (短いパスを省略しない)。結果表示も所有し、呼び出し側が key で remount する。
  */
 export function WorkFolderPathMenu({
   root,

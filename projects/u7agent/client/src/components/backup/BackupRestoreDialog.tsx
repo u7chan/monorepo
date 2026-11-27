@@ -37,8 +37,7 @@ export type BackupRestoreDialogProps = {
 
 /**
  * 復元のプレビュー兼確認ダイアログ。plan の件数・削除対象・警告・ブロッカーを出し、対象ごとの
- * 置き換えと削除の確認を取ってから適用する (docs/ui-layout.md)。
- * モーダルの標準挙動 (背面の inert 化 / Tab の拘束 / Escape) と焦点の復帰に任せる。
+ * 置き換えと削除の確認を取ってから適用する (モーダルの標準挙動と焦点の復帰に任せる)。
  */
 export function BackupRestoreDialog({
   flow,
