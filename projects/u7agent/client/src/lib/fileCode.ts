@@ -1,7 +1,6 @@
 /**
- * ファイルプレビュー本文の描画用モデル。行番号の列は描画側が本文と同じ行送りの別列として作るため
- * (`lib/codeLines.ts`)、ここでは本文の正規化・行数・言語判定・ハイライトだけを決める (DOM に依存させない)。
- * パイプラインと上限の理由は docs/file-preview.md を参照する。
+ * ファイルプレビュー本文の描画用モデル。行番号の列は描画側が本文と同じ行送りで作るため、ここでは
+ * 正規化・行数・言語判定・ハイライトだけを決める (パイプラインと上限は docs/file-preview.md)。
  */
 import { codeLineCount } from "./codeLines";
 import { highlightCode, normalizeLang, type MdToken } from "./markdown/highlight";
@@ -40,8 +39,7 @@ export function buildPreviewCode(text: string, path: string): PreviewCode {
 
 /**
  * 「本文をコピー」でクリップボードへ渡す文字列。表示中の本文と同じ正規化を通した text をそのまま返し、
- * 行番号の列もハイライトの markup も含めない (ファイルの生バイトとは行末の CRLF / CR の LF 化と
- * 末尾の空行落としの分だけ違いうる)。
+ * 行番号の列もハイライトの markup も含めない (生バイトとは行末と末尾空行の分だけ違いうる)。
  */
 export function previewCopyText(code: PreviewCode): string {
   return code.text;

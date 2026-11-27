@@ -1,7 +1,6 @@
 /**
- * 共通の確認ダイアログに渡す内容。DOM に依存しないので、文言とボタン名は各ドメインの lib で組み立てて
- * client test で固定する（ネイティブの `confirm` / `prompt` は DOM が無いと検証できない、という
- * `modelSettings.ts` と同じ理由）。見た目と開閉は `components/ConfirmDialog.tsx` が持つ。
+ * 共通の確認ダイアログに渡す内容。DOM に依存させず、文言とボタン名は各ドメインの lib で組み立てて
+ * client test で固定する (ネイティブ confirm / prompt は DOM が無いと検証できない)。
  */
 
 /** ダイアログの共通部分。対象名は本文へ埋めず `subject` の独立した行に出し、長い名前は 2 行で clamp する */
@@ -61,9 +60,8 @@ export function renameInputValue(value: string | null, current: string): string 
 }
 
 /**
- * 確認を開いた時点の対象（会話 id など）が、確定時にまだ同じかを返す。ダイアログを開いている間に
- * 会話が切り替わったら、確定しても後続を実行しない（未確認の別会話へ圧縮や起動を送らない）。
- * 対象の id / パスを控えている削除・リネームはこの限りでない。
+ * 確認を開いた時点の対象 (会話 id など) が確定時にまだ同じかを返す。開いている間に会話が切り替わったら
+ * 確定しても後続を実行しない (対象の id / パスを控える削除・リネームはこの限りでない)。
  */
 export function confirmTargetUnchanged(confirmed: string, current: string): boolean {
   return confirmed === current;
