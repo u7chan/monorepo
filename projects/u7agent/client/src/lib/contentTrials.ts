@@ -82,9 +82,8 @@ export type TrialEvidence =
   | { kind: "unverified" };
 
 /**
- * モデル選択の直下に出す証拠。現在のキー世代・現在のモデル（音声はボイスも）の `succeeded` が最新なら成功、
- * 無ければ同じ条件の `failed` の最新を出し、どちらも無ければ未確認にする（緑のバッジは作らない）。
- * 旧キー・別モデル・別ボイスの実績は履歴にだけ残し、現在の証拠にしない。
+ * モデル選択の直下に出す証拠。現在のキー世代とモデル (音声はボイスも) の最新 `succeeded` を出し、
+ * 無ければ同条件の最新 `failed`、どちらも無ければ未確認 (旧キー・別モデルの実績は証拠にしない)。
  */
 export function trialEvidence(input: {
   trials: readonly ContentTrialSummary[];
@@ -346,9 +345,8 @@ export function tabIndicator(input: { label: string; running: boolean; newResult
 }
 
 /**
- * 新しく終端した試行の種別。前回の一覧で `running` だった行が今回の一覧で `succeeded` / `failed` になり、
- * かつその種別のタブが開いていなければ「新着結果」として印を出す（ページ再訪時は前回の一覧が無いので出ない）。
- * 中止・中断は利用者の操作や再起動で終わった行なので、見ていないタブへ新しい結果として知らせない。
+ * 新しく終端した試行の種別。前回 `running` が今回 `succeeded` / `failed` になり、そのタブが開いて
+ * いなければ印を出す (再訪時は出ない。中止・中断は利用者の操作なので知らせない)。
  */
 export function newlyFinishedKinds(input: {
   previous: readonly ContentTrialSummary[] | null;
@@ -376,9 +374,8 @@ export function hasRunningTrial(trials: readonly ContentTrialSummary[]): boolean
 }
 
 /**
- * ポーリングで得た要約を、読み込み済みの一覧へ重ねる。**同じ id は差し替え**、一覧に無い行（別の種別や、
- * 追加読み込み済みの古い行）は落とさず、新しい行だけを先頭に足す（新しい順を崩さない）。
- * 実行中のポーリングは `running` の行だけを返すため、一覧をそのまま置き換えると履歴が消える。
+ * ポーリングの要約を読み込み済みの一覧へ重ねる。同じ id は差し替え、一覧に無い行は落とさず新しい行
+ * だけを先頭に足す (ポーリングは `running` しか返さないため、置き換えると履歴が消える)。
  */
 export function mergeTrialSummaries(
   current: readonly ContentTrialSummary[],
@@ -436,18 +433,16 @@ export function trialArtifactUrl(id: string, options: { download?: boolean } = {
 export const TRIAL_CHARGE_NOTE = "失敗・中断・タイムアウトでも課金される可能性があります（自動では再生成しません）。";
 
 /**
- * 保存容量の 1 行。容量は 3 タブの成果物の合計（`artifactUsage`）なので、どのタブでも同じ値を同じ文言で出す。
- * `count` は `succeeded` かつ保存済みの成果物の件数で、履歴（試行）の件数ではない（履歴は `failed` /
- * `canceled` / `interrupted` も含み、削除でも減る）ため、読み違えないよう文言に明記する。
+ * 保存容量の 1 行。3 タブの成果物の合計なのでどのタブでも同じ文言で出し、`count` は保存済みの
+ * 成果物の件数 (履歴の件数ではない) なので読み違えないよう文言に明記する。
  */
 export function trialStorageNote(usage: ContentTrialArtifactUsageValue): string {
   return `保存容量: 保存済みの成果物 ${usage.count} 件 · ${trialByteSizeLabel(usage.bytes)}（履歴の件数ではありません。画像・音声・BGM で共通）`;
 }
 
 /**
- * 保存容量の警告の 1 行。しきい値は一覧の応答（`thresholdBytes`）を使い、client に定数を持たない
- * （server は自動削除しないため、超えたときに消すかどうかは利用者が決める）。
- * 応答が `artifactWarning` を返さないときは判定できないので、警告は出さない。
+ * 保存容量の警告の 1 行。しきい値は応答 (`thresholdBytes`) を使い client に定数を持たない
+ * (server は自動削除しない)。応答に `artifactWarning` が無ければ判定できないので出さない。
  */
 export function trialCapacityWarningNote(warning: ContentTrialArtifactWarningValue | null): string | null {
   if (warning === null || !warning.warning) return null;
@@ -559,9 +554,8 @@ export function selectedTrialDetail(detail: ContentTrial | null, selectedId: str
 }
 
 /**
- * 試行を 1 件消した後に一覧を取り直す。保存容量（`artifactUsage`）は一覧の応答にしか載らないため、
- * 行だけをローカルから除くと画面の容量が古いまま残る（[すべて削除] と同じ経路に揃える）。
- * 取り直しに失敗したときは false を返し、呼び出し側が「消えたが一覧を取り直せない」と伝えられるようにする。
+ * 試行を 1 件消した後に一覧を取り直す。容量は一覧の応答にしか載らないため、行だけを除くと容量が
+ * 古いまま残る。失敗したら false を返し、呼び出し側が「取り直せない」と伝えられるようにする。
  */
 export async function removeTrialThenRefresh(input: {
   id: string;
