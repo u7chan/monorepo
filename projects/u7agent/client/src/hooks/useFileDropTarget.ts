@@ -17,9 +17,8 @@ export type FileDropTargetOptions = {
 };
 
 /**
- * ファイルのドラッグを受け付ける面の状態。`dragenter` は子要素をまたぐたびに入るので
- * enter / leave を数え、面の外へ出たときだけ閉じる。面の外での drop / Escape / blur でも閉じる
- * （docs/file-upload.md）。対象は `Files` を含むドラッグだけで、行を入力欄へ運ぶ社内の参照は通さない。
+ * ファイルのドラッグを受け付ける面の状態。`dragenter` は子要素をまたぐたびに入るので数え、面の外へ
+ * 出たときだけ閉じる (drop / Escape / blur でも閉じる)。行 → 入力欄の社内の参照は通さない。
  */
 export function useFileDropTarget({ onFiles, disabled = false }: FileDropTargetOptions): {
   active: boolean;

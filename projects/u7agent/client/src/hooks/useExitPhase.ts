@@ -3,10 +3,8 @@ import { finishOnAnimationEnd } from "../lib/animationEnd";
 import { exitPhaseAfterAnimation, nextExitPhase, type ExitPhase } from "../lib/exitPhase";
 
 /**
- * 退場アニメの間だけ mount を延ばす phase。`open` が閉じたフレームで `closing` に入り、
- * `elementRef` の `animationend` (animation を切る環境では CSS の時間値から決めた保険) で `closed` になる。
- * 演出は CSS が持ち、ここは phase の寿命だけを決める。時間値は要素の computed から読むため、
- * CSS 側の長さを TS へ写さない (NavSheet と同じ)。
+ * 退場アニメの間だけ mount を延ばす phase。`open` が閉じたフレームで `closing` に入り、`animationend`
+ * (動きを切る環境では CSS の時間値から決めた保険) で `closed` になる。
  */
 export function useExitPhase(open: boolean, elementRef: RefObject<HTMLElement | null>): ExitPhase {
   const [phase, setPhase] = useState<ExitPhase>("closed");

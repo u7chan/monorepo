@@ -4,10 +4,8 @@ import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { createRequestGate } from "./requestGate";
 
 /**
- * 作業フォルダ (root 相対) が属する repo のブランチ。`reloadToken` が変わるたびに取り直す
- * (一覧と開いている本文と同じ合図で更新する)。取得中は直前の値を残してチップを消さず、
- * repo の外・取得失敗は null にして古い値を「いまのブランチ」として見せない。
- * 連打で古い応答が後から届いても、最後の要求だけを反映する (StrictMode の effect 再実行でも同じ)。
+ * 作業フォルダが属する repo のブランチ。`reloadToken` が変わるたびに取り直し、取得中は直前の値を残す。
+ * repo の外・取得失敗は null にし (古い値を「いまのブランチ」として見せない)、最後の要求だけを反映する。
  */
 export function useGitBranch(root: string, reloadToken: number): string | null {
   const [branch, setBranch] = useState<string | null>(null);

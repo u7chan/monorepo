@@ -54,9 +54,8 @@ export function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[]
 }
 
 /**
- * 履歴ページから取り込んだ item を表示に持つか (entryId はページ由来のバブルにだけ付く)。
- * ページ取得が一時的に失敗しても payload.messages (圧縮後は有効コンテキストだけ) へ
- * 表示を戻さないための判定に使う。
+ * 履歴ページから取り込んだ item を表示に持つか (entryId はページ由来のバブルにだけ付く)。ページ取得が
+ * 一時的に失敗しても payload.messages へ表示を戻さないための判定に使う。
  */
 export function holdsFetchedHistory(state: ChatState): boolean {
   return state.bubbles.some((bubble) => bubble.entryId !== undefined);

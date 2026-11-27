@@ -36,9 +36,8 @@ export type FileTreeWidth = FileTreeResize & {
 };
 
 /**
- * ファイルツリーの幅。state は「ユーザーが示した希望幅」(clamp 前) で、表示幅は bounds で clamp する
- * (狭い窓で選んでも、広げ直したときに選んだ幅へ戻せる)。bounds が本文のコンテナ幅に依存するため、
- * その要素自身を ResizeObserver で見て clientWidth / clientHeight を state に写す。
+ * ファイルツリーの幅。state は希望幅 (clamp 前) で、表示幅は bounds で clamp する (狭い窓で選んでも
+ * 広げ直したとき戻せる)。bounds がコンテナ幅に依存するため、その要素を ResizeObserver で見る。
  */
 export function useFileTreeWidth(): FileTreeWidth {
   const [requested, setRequested] = useState<number | null>(() => fileTreeWidthStore.read());
