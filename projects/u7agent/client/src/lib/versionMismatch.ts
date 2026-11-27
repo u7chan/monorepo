@@ -1,7 +1,6 @@
 /**
- * 版ずれの案内の判定と文言。client と BFF が同じイメージから配られたかは、ビルド時に埋めた識別子と
- * `GET /api/health` の `buildId` だけを比べて決める (docs/architecture.md の「版の互換の範囲」)。
- * SSE の `eventGeneration` は BFF の再起動でも変わるので、版の識別には使わない。
+ * 版ずれの案内の判定と文言。ビルド時に埋めた識別子と `GET /api/health` の `buildId` だけで比べる
+ * (SSE の `eventGeneration` は再起動でも変わるので版の識別に使わない。docs/architecture.md)。
  */
 
 /** 案内の文言。画面と SSR のテストが同じ定数を読む */
@@ -13,9 +12,8 @@ export const VERSION_MISMATCH_NOTICE = {
 } as const;
 
 /**
- * client の版の識別子。ビルド時は Vite の define (`__U7AGENT_BUILD_ID__`) が埋め、
- * dev サーバーでは未定義 = 空文字 (案内を出さない)。dev でも fixture が差し替えられるよう、
- * 実行時の `VITE_U7AGENT_BUILD_ID` を先に読む。
+ * client の版の識別子。ビルド時は Vite の define が埋め、dev では未定義 = 空文字 (案内を出さない)。
+ * dev でも fixture が差し替えられるよう、実行時の `VITE_U7AGENT_BUILD_ID` を先に読む。
  */
 export function clientBuildId(): string {
   const explicit = import.meta.env?.VITE_U7AGENT_BUILD_ID;

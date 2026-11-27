@@ -1,7 +1,6 @@
 /**
- * Composer の録音 1 回分の状態機械。`./playground.ts` と同じく、録音に世代を持たせて遅れて届いた
- * コールバックを捨てる。所有領域（`./draft.ts`）の書き換えは本文を持つ呼び出し側に任せ、
- * ここは「どの phase か」と「中断・確定・失敗のどれで終わったか」だけを返す。
+ * 録音 1 回分の状態機械。録音に世代を持たせて遅れて届いたコールバックを捨て、所有領域の書き換えは
+ * 呼び出し側に任せて「どの phase か」「どう終わったか」だけを返す。
  */
 import type { VoiceInputCallbacks, VoiceInputCapture, VoiceInputFailure } from "./session";
 
@@ -133,9 +132,8 @@ export function voiceInputComposerBusy(phase: VoiceInputComposerPhase): boolean 
 }
 
 /**
- * 入力欄の外にある送信の入口（再実行 / 未送信の再送）。音声の操作中は走らせない。
- * 入力欄の送信は `client/src/lib/composerSubmit.ts` が同じ phase を見て止める。
- * 走らせたかを返すのは、呼び出し側が後続（フォーカスなど）を続けるかの判断に使うため。
+ * 入力欄の外にある送信の入口 (再実行 / 未送信の再送)。音声の操作中は走らせず、走らせたかを返す
+ * (呼び出し側が後続のフォーカスなどを続けるかの判断に使う。入力欄は同じ phase で止める)。
  */
 export function chatActionUnlessVoiceInput(phase: VoiceInputComposerPhase, action: () => void): boolean {
   if (voiceInputComposerBusy(phase)) return false;
