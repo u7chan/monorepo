@@ -2,9 +2,8 @@ import type { ImageParameterDraft, ImageParameterField, ImageParameterName } fro
 import { SelectField } from "../SelectField";
 
 /**
- * 画像の生成パラメータの入力欄。設定の既定の編集と試行の入力が同じ規則（欄の種類・並び・空欄の扱い）を使う。
- * 面ごとに違う aria-label の接頭辞・空欄の文言・欄ごとの操作だけを引数に取り、欄ごとの操作が無い面では
- * 包まずに欄だけを並べる（操作を持たない面の DOM を増やさない）。
+ * 画像の生成パラメータの入力欄。既定の編集と試行が同じ規則 (欄の種類・並び・空欄の扱い) を使う。
+ * 面ごとに違う接頭辞・空欄の文言・欄ごとの操作だけを引数に取り、無い面では包まずに欄を並べる。
  */
 export function ImageParameterFields({
   fields,

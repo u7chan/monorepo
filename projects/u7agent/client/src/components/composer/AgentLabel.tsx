@@ -3,9 +3,8 @@ import { AgentIcon } from "../AgentIcon";
 import { agentFrameClass, agentLabelBoxClass } from "./fieldStyles";
 
 /**
- * セッションを開いているときのエージェント欄。定義は作成時に promptSnapshot へ固定され、会話の途中では
- * 変えられないため、選べる見た目 (AgentPicker) にしない (選べない欄を入力欄の見た目にもしない)。寸法は
- * AgentPicker と共有し、最初の送信でプルダウンから入れ替わるときも行の幅と高さを動かさない。
+ * セッションを開いているときのエージェント欄。定義は作成時に promptSnapshot へ固定され途中では
+ * 変えられないので、選べる見た目にしない (寸法は AgentPicker と共有し、送信後も行を動かさない)。
  */
 export function AgentLabel({
   agents,

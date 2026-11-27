@@ -4,9 +4,8 @@ import { measureUserMessageClamp } from "../../lib/userMessage";
 import { CollapseChevronIcon } from "../icons";
 
 /**
- * user バブルの本文。長いときは CSS (.user-message-clamp) の高さで切って、開閉ボタンを出す。
- * 開いた高さは実測した scrollHeight を CSS 変数で渡す。interpolate-size のような新しい CSS に
- * 頼らず、`max-block-size` の遷移だけで開閉をアニメーションさせるため。
+ * user バブルの本文。長いときは CSS の高さで切って開閉ボタンを出す。開いた高さは実測した
+ * scrollHeight を CSS 変数で渡す (interpolate-size に頼らず max-block-size の遷移だけで動かす)。
  */
 export function UserMessageBody({ text }: { text: string }) {
   const bodyRef = useRef<HTMLDivElement>(null);

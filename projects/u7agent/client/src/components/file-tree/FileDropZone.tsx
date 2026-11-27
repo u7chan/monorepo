@@ -15,9 +15,8 @@ export type FileDropZoneProps = {
 };
 
 /**
- * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップ面。PC のブラウザーでファイルを掴んでいる間だけ、
- * 面全体に破線のドロップゾーンを重ねる。タッチ端末には drag イベントが無いため、モバイル向けの
- * 操作は持たない (docs/file-upload.md)。社内の「行を入力欄へ参照」ドラッグは `Files` を含まないので通さない。
+ * 設定 → ファイルと作業環境のドラッグ＆ドロップ面。PC でファイルを掴んでいる間だけ破線のゾーンを
+ * 重ねる (タッチ端末には drag が無い。社内の行 → 入力欄のドラッグは通さない。docs/file-upload.md)。
  */
 export function FileDropZone({ onFiles, hint, children, className }: FileDropZoneProps) {
   const { active, handlers } = useFileDropTarget({ onFiles });

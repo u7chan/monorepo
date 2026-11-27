@@ -63,8 +63,7 @@ export type ImageTrialSectionProps = {
 };
 
 /**
- * 設定に反映しない画像の試行。プロンプトを 1 回送り、直近の結果だけを同じ面に出す。
- * 履歴は専用のタブ（`TrialHistoryTab`）が全種別をまとめて見る。
+ * 設定に反映しない画像の試行。プロンプトを 1 回送り、直近の結果だけを同じ面に出す (履歴は専用タブ)。
  * キー未設定・全体 OFF・runtime 不可でも直近の結果は読み、新規生成だけを止める。
  */
 export function ImageTrialSection({

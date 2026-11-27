@@ -9,10 +9,8 @@ import { MenuItem } from "../MenuItem";
 import { agentBoxClass, agentFrameClass } from "./fieldStyles";
 
 /**
- * コンポーザーのエージェント選択。native `<select>` の `<option>` には画像を描画できないため、
- * button + native `popover="auto"` の listbox で行にアイコンと名前を出す。外側クリックと Escape の
- * 終了は標準の light dismiss に任せ、自前で閉じる経路（選択 / Tab での退出）だけ `hidePopover()` を通す。
- * 本体は常時 mount する（React の条件付き mount で出し入れすると標準の開閉と二重管理になる）。
+ * コンポーザーのエージェント選択。`<option>` に画像を描けないため button + popover の listbox で出す。
+ * 開閉は native popover に任せ、本体は常時 mount する (条件付き mount は二重管理になる)。
  */
 export function AgentPicker({
   agents,
