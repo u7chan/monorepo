@@ -115,8 +115,7 @@ export const SHARE_PREVIEW_FAILED_UPDATE_HINT = "同じフォルダの共有物�
 
 /**
  * 実行中の会話で共有できない理由。受付時の ZIP は live なディレクトリを読むので、実行中は
- * 「index.html は新版・資産は旧版」のような半端なスナップショットが外部公開 URL に載り得る。
- * 文の正は BFF の `SHARED_CONTENT_RUNNING`（`server/src/shared-contents.ts`）。
+ * 「index.html は新版・資産は旧版」の半端なスナップショットが公開 URL に載り得る。
  */
 export const SHARE_RUNNING_NOTE = "会話の実行中は公開できません。実行が終わってから共有してください";
 /** プロジェクト会話は cwd を共有するため、自分の会話が idle でも兄弟会話が書き換えていることがある */
@@ -207,9 +206,8 @@ export function shareItemsPublishing(items: readonly SharedContentResponse[]): b
 }
 
 /**
- * 次の tick で詳細を読む 1 件。`tracked` は受付（202）済みで終端をまだ確認できていない id。
- * 受付直後の一覧取得が失敗すると items は操作前のままなので、これが無いと `activeId` の詳細も読まれず、
- * 更新前の結果を出したままポーリングが止まる。
+ * 次の tick で詳細を読む 1 件 (`tracked` = 受付済みで終端を確認できていない id)。受付直後の
+ * 一覧取得が失敗すると activeId の詳細も読まれず、更新前の結果のまま止まるため。
  */
 export function sharePollDetailId(
   activeId: string | null,
@@ -240,9 +238,8 @@ export function trackAcceptedSharedContent(tracked: readonly string[], id: strin
 }
 
 /**
- * 1 件の操作が成功したあとの 202 追跡。受付を返す操作は追跡へ入れ、終端を返す操作（停止・削除）は外す。
- * 表示名の変更は provider を呼ばず終端も受付も返さないので、追跡をそのまま残す
- * （ここで外すと、一覧の取得に失敗している間に受けた公開の結果を読めなくなる）。
+ * 1 件の操作が成功したあとの 202 追跡。受付を返す操作は追跡へ入れ、終端を返す操作 (停止・削除) は
+ * 外す。表示名の変更は受付も終端も返さないので追跡を残す (公開の結果を読めなくしない)。
  */
 export function settleAcceptedAfterMutation(
   tracked: readonly string[],
@@ -265,9 +262,8 @@ export function settleAcceptedSharedContent(
 }
 
 /**
- * 詳細の 1 件で終端を確認できた id を追跡から外す。一覧の取得が失敗し続けても、詳細が終端を返した時点で
- * その id のポーリングは終えられる。一覧にまだ現れていない他の id は落とさないので、
- * 一覧を受け取る `settleAcceptedSharedContent` とは使い分ける。
+ * 詳細の 1 件で終端を確認できた id を追跡から外す。一覧の取得が失敗し続けても、詳細が終端を
+ * 返した時点でその id のポーリングは終えられる (一覧待ちの settleAcceptedSharedContent と使い分ける)。
  */
 export function settleAcceptedDetail(tracked: readonly string[], item: SharedContentResponse): string[] {
   return tracked.filter((id) => id !== item.id || item.status === "publishing");

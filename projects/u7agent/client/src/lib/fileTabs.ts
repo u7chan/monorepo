@@ -23,9 +23,8 @@ export type PreviewMode = "source" | "preview";
 export type PreviewModes = Record<string, PreviewMode>;
 
 /**
- * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・SVG (data URL の `<img>`)・画像 (raw の
- * `<img>`)・音声 (raw の `<audio>`) がプレビューで、他の拡張子はソース。本文と同じく own property だけを見る
- * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
+ * タブの表示モード。既定は HTML / Markdown / SVG / 画像 / 音声がプレビューで他はソース。
+ * own property だけを見る (`constructor` のような名前を選択済みと誤認しないため)。
  */
 export function previewModeFor(modes: PreviewModes, path: string): PreviewMode {
   const mode = Object.hasOwn(modes, path) ? modes[path] : undefined;
@@ -92,9 +91,8 @@ function lastSegments(path: string, count: number): string {
 }
 
 /**
- * 保持している本文を読む。通常の object は継承プロパティも返すため、`constructor` / `toString` /
- * `__proto__` のような名前のパスを「保持済み」と誤認しないよう、own property だけを見る。
- * (書き込み側の `{ ...prev, [path]: value }` は computed key なので own property になる)
+ * 保持している本文を読む。`constructor` / `__proto__` のような名前を保持済みと誤認しないよう、
+ * own property だけを見る (書き込みは computed key なので own property になる)。
  */
 export function readPreview(results: PreviewResults, path: string): PreviewResults[string] | undefined {
   return Object.hasOwn(results, path) ? results[path] : undefined;
@@ -133,9 +131,8 @@ export function closeFileTab(state: FileTabsState, path: string): FileTabsState 
 }
 
 /**
- * ディレクトリ配下のタブをまとめて閉じる (ディレクトリ自身にはタブが無い)。表示中のタブが配下にあるときの
- * 繰り上がりは closeFileTab と同じ規則にそろえ、1 枚ずつ閉じて途中結果を次の 1 枚に渡す。
- * 対象が無いときは同じ object を返す。
+ * ディレクトリ配下のタブをまとめて閉じる (ディレクトリ自身にはタブが無い)。繰り上がりは
+ * closeFileTab と同じ規則で 1 枚ずつ閉じ、途中結果を次へ渡す (対象が無ければ同じ object)。
  */
 export function closeFileTabsUnder(state: FileTabsState, path: string): FileTabsState {
   const prefix = `${path}/`;
@@ -172,9 +169,8 @@ export type PreviewOrigin = "app" | "storage";
 export type PreviewOrigins = Record<string, PreviewOrigin>;
 
 /**
- * プレビューの配信元。既定は別オリジン (`storage` = ストレージ有効)。モードと同じく own property だけを見る
- * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
- * ブラウザから見たポートが未取得の間は呼び出し側が隔離へ倒す (client にポートを焼き込まない)。
+ * プレビューの配信元。既定は別オリジン (`storage` = ストレージ有効) で、モードと同じく own
+ * property だけを見る。ブラウザから見たポートが未取得の間は呼び出し側が隔離へ倒す。
  */
 export function previewOriginFor(origins: PreviewOrigins, path: string): PreviewOrigin {
   const origin = Object.hasOwn(origins, path) ? origins[path] : undefined;
