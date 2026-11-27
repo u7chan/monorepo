@@ -1,8 +1,6 @@
 /**
- * ファイル画面の復元用 snapshot の encode / decode と、その保存先 (localStorage) の薄い境界。
- * 保存するのは「タブの並び / 表示中 / タブごとの表示モード / 開いているディレクトリ」だけで、
- * 本文・children・loading・error は持たない (他キーや複数 cwd と合算した容量と鮮度のため。
- * 復帰時は既存の取得経路で取り直す)。保存先の解決は deviceSettingsStore.ts。
+ * ファイル画面の復元用 snapshot の encode / decode と保存先の薄い境界。保存するのはタブの並び・表示中・
+ * 表示モード・開いているディレクトリだけで、本文や children は持たない (復帰時に取り直す)。
  */
 import { deviceSettingsStorage, type DeviceSettingsStorage } from "./deviceSettingsStore";
 import { FILE_TAB_LIMIT, type PreviewMode, type PreviewModes } from "./fileTabs";
@@ -93,10 +91,8 @@ export type FilePreviewStore = {
 };
 
 /**
- * cwd ごとの snapshot を localStorage の 1 キーで読み書きする。保存領域が使えない環境
- * (SecurityError / quota 超過) でも操作を止めず、無限リトライもしない。write が失敗した cwd は
- * メモリ snapshot が最新になるため、同一セッション内の往復 (設定を離れて戻る等) は復元できる。
- * ただし write 失敗後の F5 では古い保存値が戻り得る (復元は保証しない)。
+ * cwd ごとの snapshot を localStorage の 1 キーで読み書きする。保存領域が使えなくても止めず、無限
+ * リトライもしない (write が失敗した cwd はメモリが最新。F5 では古い値が戻り得る)。
  */
 export function createFilePreviewStore(storage?: DeviceSettingsStorage | null): FilePreviewStore {
   const memory = new Map<string, FilePreviewSnapshot | null>();

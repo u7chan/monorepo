@@ -1,7 +1,6 @@
 /**
- * 端末 (オリジン) ごとの表示設定を localStorage の 1 キーで読み書きする store と、その保存先の解決。
- * キー・parse・serialize は各 module が持ち、メモリの控えと保存先の解決だけをここに置く
- * (docs/ui-layout.md)。
+ * 端末 (オリジン) ごとの表示設定を localStorage の 1 キーで読み書きする store と保存先の解決。
+ * キー・parse・serialize は各 module が持ち、ここはメモリの控えと解決だけ (docs/ui-layout.md)。
  */
 
 /**
@@ -43,9 +42,8 @@ export type DeviceSettingsStoreOptions<T> = {
 };
 
 /**
- * 値を localStorage の 1 キーで読み書きする。保存領域が使えない環境 (private browsing 等) でも操作を
- * 止めず、代わりに同じセッション内のメモリを使う。write が失敗した後でも、再読み込みするまでは
- * 書いた値を保つ。
+ * 値を localStorage の 1 キーで読み書きする。保存領域が使えない環境でも操作を止めず、同じセッション内の
+ * メモリを使う (write が失敗した後でも、再読み込みするまでは書いた値を保つ)。
  */
 export function createDeviceSettingsStore<T>(
   storage: DeviceSettingsStorage | null | undefined,
