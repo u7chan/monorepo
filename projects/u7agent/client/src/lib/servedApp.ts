@@ -168,10 +168,8 @@ export function servedAppMenuSub(view: ServeView): string {
 }
 
 /**
- * 置き換えの確認。押す前にメニューの説明文で予告し、押した後にこの確認を出す (取り消したら実行しない)。
- * 所有者名は本文へ埋めず clamp した独立した行 (subject) へ 1 回だけ出し、起動コマンドも等幅の別行にする
- * (所有者名は会話名なので「停止」だけでは会話やエージェントを止める意味に読める。タイトルは初回メッセージ
- * 由来で最大 60 文字になるため、文章へ埋めると読めなくなる)。ボタンは何をするかを書く。
+ * 置き換えの確認。所有者名は clamp した独立した行へ 1 回だけ出し、起動コマンドも等幅の別行にする
+ * (文章へ埋めると 60 文字のタイトルで読めなくなる)。ボタンは何をするかを書く。
  */
 export function servedAppStartConfirm(view: ServeView, busy: ServeBusyKind | undefined): ConfirmRequest | undefined {
   const replace = view.kind === "other" || view.kind === "unknown";
@@ -258,12 +256,8 @@ export type ServeRowEvent =
 export const NO_SERVE_ROW: ServeRowState = { episode: false };
 
 /**
- * 出来事 1 つぶんのエピソードの遷移。エピソードは「このタブで起動を観測した」ことを表すため、
- * 稼働中のポーリング (状態の同一性) では落とさず、観測の起点が切れたとき (会話切替 / 取得失敗 /
- * 確認待ち / 閉じた) に落とす。新しく立てるのは、このタブの起動が成功したとき (start-ok) と、
- * 到達不可から自分のサービスへ変わったのをポーリングで観測したときだけ (初期取得・会話切替の
- * 直後は直前の確定状態が無いので立てない)。確認待ちの間も立てない (起動の応答より先に到達可を
- * 観測しても、「起動中」の表示と行を同時に出さない)。
+ * 出来事 1 つぶんのエピソードの遷移。稼働中のポーリングでは落とさず、観測の起点が切れたとき
+ * (会話切替 / 取得失敗 / 確認待ち / 閉じた) に落とす。立てるのは起動成功と到達不可からの復帰だけ。
  */
 export function servedAppRow(state: ServeRowState, event: ServeRowEvent): ServeRowState {
   switch (event.kind) {
@@ -289,9 +283,8 @@ export function servedAppRow(state: ServeRowState, event: ServeRowEvent): ServeR
 }
 
 /**
- * バー直下の「開く」1 行の href。描くのは「エピソードがある かつ 取得に失敗していない かつ
- * 開ける (到達可 + 自分のサービス) かつ URL を作れる」ときだけで、消える条件を並べない
- * (状態が増えても嘘のリンクを出さない)。取得失敗でリンクも操作も出さないのは既存の契約と同じ。
+ * バー直下の「開く」1 行の href。エピソードがあり、取得に失敗せず、開けて URL を作れるときだけ
+ * 描く (消える条件を並べないので、状態が増えても嘘のリンクを出さない)。
  */
 export function servedAppRowHref({
   row,
@@ -313,9 +306,8 @@ export function servedAppRowHref({
 }
 
 /**
- * 起動が成功したときに desktop の「サービス」リンクへ焦点を移す要求を立てるか。入力は必ず
- * 成功時点で読む (押した時点のレイアウトや焦点で決めない)。singleColumn は行が導線でリンクも
- * 無いため立てない (残すと desktop へ戻ったときに古い要求で焦点が飛ぶ)。
+ * 起動成功時に desktop の「サービス」リンクへ焦点を移す要求。入力は必ず成功時点で読み、singleColumn
+ * では立てない (残すと desktop へ戻ったときに古い要求で焦点が飛ぶ)。
  */
 export function servedAppFocusRequest({
   applied,
