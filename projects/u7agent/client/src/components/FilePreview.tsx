@@ -110,9 +110,10 @@ export function FilePreview({
   // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
   const fullscreenPhase = useExitPhase(fullscreen, fullscreenDialogRef);
   const fullscreenVisible = fullscreen || fullscreenPhase === "closing";
-  // 開閉は native の showModal / close だけで行う (面を portal / 条件分岐で移すと React が要素を作り直し、
-  // iframe が文書を取り直してスクロール・入力・JS の状態が消える)。close を layout effect に置くのは、
-  // 退場アニメの終了と同じ描画で閉じるため (passive だと 1 フレーム「open のまま閉状態の寸法」が出る)
+  /**
+   * 開閉は native の showModal / close だけで行う (portal / 条件分岐で移すと React が要素を作り直し、
+   * iframe の状態が消える)。close を layout effect に置くのは退場アニメと同じ描画で閉じるため。
+   */
   useLayoutEffect(() => {
     const dialog = fullscreenDialogRef.current;
     if (dialog === null) return;
@@ -343,9 +344,10 @@ export function FilePreview({
           />
         </div>
       ) : showHtml ? (
-        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox フラグは CSP と両方に書く。
-        // Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、src と sandbox を同じ更新で
-        // 変えると古いフラグで読み込まれる (CSP 側では打ち消せない)。切替時は key を変えて要素ごと作り直す
+        /**
+         * 相対パスは同じルート配下へ解決する。sandbox フラグは CSP と両方に書き、src と sandbox を同じ
+         * 更新で変える (Chromium はナビゲーション開始時のフラグで文書を作る)。切替時は key も変える。
+         */
         <iframe
           key={storageEnabled ? "storage" : "isolated"}
           src={htmlPreviewSrc}
@@ -413,9 +415,10 @@ export function FilePreview({
       onClose={(event) => {
         if (event.target === event.currentTarget) event.stopPropagation();
       }}
-      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫の cancel
-      // (本文の画像の拡大 = portal の dialog) も React のツリーを伝わって届くので、自分の分だけを受ける
-      // (受けると拡大の標準の close を preventDefault で打ち消し、Escape で拡大が閉じなくなる)
+      /**
+       * Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫の
+       * cancel (本文の画像の拡大) も泡立って届くので、自分の分だけを受ける (受けると拡大が閉じない)。
+       */
       onCancel={(event) => {
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
