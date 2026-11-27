@@ -103,9 +103,8 @@ export type FileBrowserProps = {
   /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
   canRef?: boolean;
   /**
-   * 行ごと隠す名前 (名前一致・階層を問わない)。作業環境パネルだけが `.git` を渡す
-   * (設定 → ファイル とスキルのファイルタブは渡さず、全部見える。docs/file-tree.md#隠す行)。
-   * 取得済みの一覧には効かないため、mount の間で変えない (root と同じ前提)。
+   * 行ごと隠す名前 (名前一致・階層を問わない)。作業環境パネルだけが `.git` を渡し、
+   * mount の間で変えない (docs/file-tree.md#隠す行)。
    */
   hiddenNames?: readonly string[];
   /**
@@ -117,9 +116,8 @@ export type FileBrowserProps = {
   openRequest?: { seq: number; path: string } | null;
   onHandled?: (seq: number) => void;
   /**
-   * 行の ⋯ の「共有」(Cloudflare への静的公開) から呼ぶ。渡した面にだけ項目を出す。
-   * path は面の root 相対で、作業フォルダ面では共有 API の `directory` と同じ基準になる
-   * (ワークスペース root を指す設定 → ファイル には渡さない)
+   * 行の ⋯ の「共有」から呼ぶ。渡した面にだけ項目を出す。path は面の root 相対で、
+   * 作業フォルダ面では共有 API の `directory` と同じ基準 (設定 → ファイル には渡さない)。
    */
   onShareDirectory?: (path: string) => void;
   /**
@@ -138,11 +136,8 @@ export type FileBrowserProps = {
 };
 
 /**
- * ファイルツリーとプレビューの本体。渡された `root` を起点に `GET /api/files` を辿る (配下は `<root>/<name>`)。
- * 外装 (設定ページ / チャットの右パネル) は呼び出し側が持ち、root の違う 2 画面で同じ実装を使う。
- * **root を変えるときは呼び出し側で `key` を張り替える** (復元・取得・保存は mount ごとの初期化が前提)。
- * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
- * ディレクトリは展開時に初めて取得し、ファイル監視はしない (一覧も行の時刻も「再読み込み」と run 終了でしか更新されない)。
+ * ファイルツリーとプレビューの本体。`root` の配下を `GET /api/files` で辿り、展開時に初めて取得する。
+ * root を変えるときは呼び出し側で `key` を張り替える (docs/file-tree.md)。
  */
 export function FileBrowser({
   root,
@@ -245,11 +240,8 @@ export function FileBrowser({
     }, REVEAL_HIGHLIGHT_MS);
   }, [reveal, tree]);
 
-  // 折りたたみの高さの遷移の途中は行の位置が確定しないため、遷移が終わってからスクロールを合わせ直す
-  // (block: "nearest" はその時点の位置で決まる)。合図は transitionend だけにする: 遷移が走った枝にだけ
-  // listener が付くので、祖先が既に開いているとき (遷移なし) は何も起きず、直後の手動スクロールを
-  // 巻き戻さない。reduced motion でも遷移が無く、最初のスクロールがそのまま正しい。
-  // tree に依存させるのは、祖先の一覧の取得で行が現れるのがこの effect のあとになるため
+  // 遷移中の行位置は確定しないので、高さの遷移が終わってからスクロールを合わせる (transitionend だけを
+  // 合図にすると、遷移が無い枝や手動スクロールを巻き戻さない。reduced motion でも最初の位置で正しい)
   useEffect(() => {
     if (reveal === null) return;
     const row = revealRowRef.current;
@@ -279,9 +271,8 @@ export function FileBrowser({
     [],
   );
 
-  // ファイル参照からの要求は mount 後の effect で適用する (パネルは条件付き mount のため、
-  // 「mount 時の token を無視する」reloadToken の方式では初回クリックを取り落とす)。
-  // openFileTab は同一パスでも新しい state を返すので「タブが増えない」ことは 1 回適用の根拠にならない
+  // ファイル参照の要求は mount 後の effect で適用する (条件付き mount のため mount 時の token では
+  // 初回クリックを取り落とす。openFileTab は同一パスでも新しい state を返すので 1 回適用の根拠にならない)
   useEffect(() => {
     if (!openRequest || appliedRequestRef.current === openRequest.seq) return;
     appliedRequestRef.current = openRequest.seq;
@@ -340,9 +331,8 @@ export function FileBrowser({
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
 
   /**
-   * 削除は確認してからサーバーへ委譲する。ファイルは 1 件、ディレクトリは配下ごと消える。
-   * 成功したら自分で消した行と、ディレクトリなら配下の state / タブを落とす (外部から消えた場合の現行挙動とは別)。
-   * 失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
+   * 削除は確認してからサーバーへ委譲する (ファイルは 1 件、ディレクトリは配下ごと)。
+   * 成功したら消した行と、ディレクトリなら配下の state / タブも落とす (docs/file-actions.md#削除)。
    */
   const removeEntry = (path: string, type: "file" | "dir") => {
     if (deletingRef.current.has(path)) return;
@@ -370,9 +360,8 @@ export function FileBrowser({
   };
 
   /**
-   * リネームは設定ツリーだけの導線 (`canRename`)。現在の名前を初期値にした入力で受け取り、成功したら
-   * ツリーとタブ・表示モードの経路を新しい名前へ張り替える (開閉と取得済みの子は保ち、本文だけ取り直す)。
-   * 失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
+   * リネームは設定ツリーだけの導線 (`canRename`)。成功したらツリーとタブの経路を張り替え、
+   * 開閉と取得済みの子は保つ (docs/file-actions.md#リネーム)。
    */
   const renameRow = (path: string, currentName: string) => {
     if (renamingRef.current.has(path)) return;
@@ -399,9 +388,8 @@ export function FileBrowser({
   };
 
   /**
-   * ダウンロードは事前チェック (`download/check`) を通してから始める。除外 (`skipped`) があるときだけ確認を 1 回出し、
-   * 開始は `<a download>` のプログラム的クリックにする (本文をメモリに保持せずページ遷移もしない)。
-   * 除外名のディレクトリ・上限超過・通信失敗は削除と同じく親ディレクトリのエラー行に出し、行は残す。
+   * ダウンロードは事前チェック (`download/check`) を通し、除外 (`skipped`) があるときだけ確認を出す。
+   * 開始は `<a download>` のクリックで、失敗は親ディレクトリのエラー行に出す (docs/file-actions.md#ダウンロード)。
    */
   const downloadRow = (path: string, name: string, type: "file" | "dir") => {
     if (downloadingRef.current.has(path)) return;
@@ -480,10 +468,8 @@ export function FileBrowser({
       }
     >
       <div className="relative flex h-full min-h-0 flex-col @2xl:flex-row">
-        {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
-            プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない)。
-            左右 2 段では幅を --file-tree-width で選べる (既定はコンテナの 1/3。lib/fileTreeWidth.ts)、
-            上下 2 段では高さを --file-tree-height で選べる (既定は内容の高さ。lib/fileTreeHeight.ts) */}
+        {/* タブがあるときは低い viewport でプレビューへ高さを譲る (shrink-0 を付けない)。幅と高さは
+            --file-tree-width / --file-tree-height で選べる (lib/fileTreeWidth.ts / lib/fileTreeHeight.ts) */}
         <div
           className={cn(
             "relative min-h-0",
@@ -492,9 +478,8 @@ export function FileBrowser({
             hasTabs && !stacked && "@2xl:w-(--file-tree-width) @2xl:flex-none",
           )}
         >
-          {/* スクロール枠自身を位置指定にする: 行の中の絶対配置 (読み込み中の印の sr-only の文字など) が
-              枠の外の祖先を基準にすると、枠が切っている箱が外側の scrollable overflow として数えられ、
-              外装 (面のスクロール) の範囲が行の位置まで伸びる (docs/file-tree.md) */}
+          {/* スクロール枠自身を位置指定にする。行の中の絶対配置が外の祖先を基準にすると、
+              枠が切っている箱が外側の overflow として数えられ、外装のスクロールが伸びる (docs/file-tree.md) */}
           <div
             className={cn(
               "scrollbar-stable relative min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto",
@@ -626,12 +611,8 @@ function Branch({ parent, node, depth, scope }: BranchProps) {
 }
 
 /**
- * 行の右端 (サイズ + 時刻 + 末尾スロット) の入れ物。コンテナ幅が `@2xs` (288px) 未満の面では
- * `basis-full` で行を 2 段に折り返し、名前へ幅を譲る (狭い右パネルでは 1 段に収めると
- * 名前の幅が尽きた後にアイコンと時刻が重なる。実測は docs/file-actions.md#時刻)。
- * `@2xs` 以上では `basis-auto` に戻って名前の右隣に並び、`justify-end` は幅が内容ぶんしかないため効かない。
- * `flex-wrap` は安全網: 2 段目 (行幅いっぱい) にも収まらない長いサイズ + 古い日付では、
- * メタをさらに折り返して ⋯ を切らない (行は 3 段になり得る)。
+ * 行の右端 (サイズ + 時刻 + 末尾スロット)。`@2xs` 未満は 2 段に折り返して名前へ幅を譲り、
+ * 収まらない組み合わせはさらに折り返して ⋯ を切らない (実測は docs/file-actions.md#時刻)。
  */
 function RowTail({ children }: { children: ReactNode }) {
   return (
@@ -700,10 +681,8 @@ function EntryRow({
           style={
             {
               "--tree-indent": `${depth * INDENT + 8}px`,
-              // 1 段表示でも名前へ 24px を残す (インデント + chevron 16 + gap 8 + folder 16 + gap 8 + 名前 24。
-              // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
-              // shrink-0 のアイコン・リンク印が時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
-              // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+              // 1 段表示でも名前へ 24px を残す (アイコン・リンク印が時刻・⋯ へ重ならないため)。
+              // 行幅を超えないよう 100% で頭打ちにする (深い階層で最小幅がはみ出すのを防ぐ)
               "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 114 : 72}px), 100%)`,
             } as CSSProperties
           }
@@ -739,13 +718,8 @@ function EntryRow({
           </RowTail>
           <PathCopyFailure detail={copyFailure(path)} />
         </div>
-        {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
-            初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
-            同じ遷移で潰し、閉じている入れ物は inert にしてフォーカスも読み上げもさせない
-            (高さ 0 で見えない行が支援技術に残るため)。
-            待ちの印と内容は別の入れ物にする: 同じ入れ物の中で入れ替えると、開き切った後の高さ
-            (1fr の解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を
-            同じ長さで重ねる)。どちらも開く前から置くのは、mount した要素には遷移の前の値が無いため */}
+        {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。閉じている間も内容は残し、
+            待ちの印と内容は別の入れ物にする (入れ替えでは遷移が走らないため。docs/file-tree.md) */}
         <div className="tree-fold" data-open={loadingOpen} inert={!loadingOpen}>
           <div>
             <MessageRow depth={depth + 1}>
@@ -787,10 +761,8 @@ function EntryRow({
       style={
         {
           "--tree-indent": `${depth * INDENT + FILE_INDENT}px`,
-          // 1 段表示でも名前へ 24px を残す (インデント + アイコン 16 + gap 8 + 名前 24。
-          // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
-          // shrink-0 のアイコン・リンク印がサイズ・時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
-          // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+          // 1 段表示でも名前へ 24px を残す (アイコン・リンク印がサイズ・時刻・⋯ へ重ならないため)。
+          // 行幅を超えないよう 100% で頭打ちにする (深い階層で最小幅がはみ出すのを防ぐ)
           "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 90 : 48}px), 100%)`,
         } as CSSProperties
       }
@@ -921,9 +893,8 @@ function EntryTime({ at }: { at: number | undefined }) {
 }
 
 /**
- * 行のサイズ。一覧が付けるのは通常ファイルとファイルへの symlink だけなので、`undefined` の行
- * (ディレクトリ・壊れた symlink) には出さない。表記は添付チップなどと同じ `formatBytes` で、`title`
- * に正確なバイト数を出す (`formatBytes` は不正な値で空文字を返すため、その場合も出さない)。
+ * 行のサイズ。通常ファイルとファイルへの symlink だけに出し、`formatBytes` の表記に揃える
+ * (正確なバイト数は `title` に出す。空文字になる値は出さない)。
  */
 function EntrySize({ bytes }: { bytes: number | undefined }) {
   if (bytes === undefined) return null;
