@@ -48,7 +48,7 @@ export type ComposerProps = {
   activity: string;
   /** 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す */
   activityState?: string;
-  /** 実行中の thinking 末尾 (live 専用)。状態行の下の固定領域に出す */
+  /** 実行中の thinking 末尾 (live 専用)。状態行の上の固定領域に出す */
   thinkingText?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;

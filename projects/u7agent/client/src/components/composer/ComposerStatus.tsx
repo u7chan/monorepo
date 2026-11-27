@@ -130,7 +130,7 @@ function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusVi
 }
 
 /**
- * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。
+ * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。thinking 末尾の固定領域は状態行の上に置く。
  * モデル / Effort の入口・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
  * 状態行の中は状態 (活動 / 経過 / モデル / ゲージ) に限り、説明 (待機の理由 / 作用の結果 / 押せない理由) は
@@ -282,6 +282,22 @@ export function ComposerStatus({
           </ReloadButton>
         </div>
       ) : null}
+      {/* 実行中の thinking の末尾。状態行の上に 2 行分の固定領域を置き、テキスト量・改行・折り返しでは
+          高さを変えない。状態行の下に置かないのは、tail が空の間もモデル行と入力欄の間に空白が残るため。領域は thinking の有無・run の終端でも開閉せず、常に同じ高さを確保する
+          (開閉で会話の見える範囲が動くため。docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、
+          tail は aria-hidden にする */}
+      <div
+        className={cn(
+          "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
+          // 罫線は空の箱を見せないため text があるときだけ。forced-colors でも透明な罫線が
+          // 色を付け直されないよう、太さごと外す (余白は常に同じで高さは変えない)
+          thought === "" ? null : "border-l-2 border-line-strong",
+        )}
+        title={thinkingText}
+        aria-hidden="true"
+      >
+        <span>{thought}</span>
+      </div>
       <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
         {elapsed === null ? null : <RunSpinnerIcon tone="focus" />}
         {showActivity ? (
@@ -351,22 +367,6 @@ export function ComposerStatus({
             </button>
           )}
         </div>
-      </div>
-      {/* 実行中の thinking の末尾。状態行の下に 2 行分の固定領域を置き、テキスト量・改行・折り返しでは
-          高さを変えない。領域は thinking の有無・run の終端でも開閉せず、常に同じ高さを確保する
-          (開閉で会話の見える範囲が動くため。docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、
-          tail は aria-hidden にする */}
-      <div
-        className={cn(
-          "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
-          // 罫線は空の箱を見せないため text があるときだけ。forced-colors でも透明な罫線が
-          // 色を付け直されないよう、太さごと外す (余白は常に同じで高さは変えない)
-          thought === "" ? null : "border-l-2 border-line-strong",
-        )}
-        title={thinkingText}
-        aria-hidden="true"
-      >
-        <span>{thought}</span>
       </div>
       {queueReason === undefined && blockedNotice === undefined && notice === undefined ? null : (
         // 説明 (待機の理由 / 作用の結果 / 押せない理由) の 1 行。待機の理由を活動と同じ行に置くと、
