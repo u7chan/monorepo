@@ -1,7 +1,6 @@
 /**
  * スペース選択の規則と保存。選択は端末 (オリジン) ごとの表示設定なので localStorage の 1 キーに閉じ、
- * 読み取りの失敗は握らず呼び出し側へ通す (既定スペースを黙って表示しない契約を、保存できない環境と
- * 混ぜないため)。保存先の解決は deviceSettingsStore.ts (docs/frontend.md, docs/ui-layout.md)。
+ * 読み取りの失敗は握らず呼び出し側へ通す (既定スペースを黙って表示しない)。
  */
 import type { Space } from "server";
 import { deviceSettingsStorage, type DeviceSettingsStorage } from "./deviceSettingsStore";
@@ -17,9 +16,8 @@ export function selectedSpace(spaces: Space[], stored: string | null): Space | u
 }
 
 /**
- * mount 時の選択。URL の `space` (リンクの明示の指定) を保存値より優先し、どちらも無ければ既定。
- * 一覧に無い値はここでは弾かず、selectedSpace が復旧画面へ回す。
- * `fromUrl` は「開いたスペースを次の初期表示にする」ための印で、確定後に保存値を更新する。
+ * mount 時の選択。URL の `space` を保存値より優先し、どちらも無ければ既定。一覧に無い値はここでは
+ * 弾かず selectedSpace が復旧画面へ回す (`fromUrl` の確定後に保存値を更新する)。
  */
 export function initialSpaceSelection(
   urlSpace: string | null,
@@ -43,9 +41,8 @@ export function ownerLinkSpace(
 }
 
 /**
- * 削除後に選ぶスペース。選択中のスペースを消したときだけ既定へ倒し（呼び出し側が保存値も書く）、
- * 選択していないスペースを消したときは選択を変えない（`null`。一覧から外すだけでよい）。
- * 復旧画面にしないのは、自分で消した直後の状態は既知だから。
+ * 削除後に選ぶスペース。選択中を消したときだけ既定へ倒し (呼び出し側が保存値も書く)、それ以外は
+ * 選択を変えない (null)。自分で消した直後は既知なので復旧画面にしない。
  */
 export function selectionAfterSpaceDelete(selectedId: string, removedId: string): string | null {
   return selectedId === removedId ? DEFAULT_SPACE_ID : null;

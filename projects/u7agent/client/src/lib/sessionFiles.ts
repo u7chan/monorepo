@@ -32,25 +32,22 @@ export type SessionFilesDefaultOpen = {
 };
 
 /**
- * desktop のパネルの既定値。プロジェクト配下の新規会話だけ開にする。
- * 使うのは利用者操作の新規会話の入口 (App の handleNewChat) だけで、起動時は会話 URL を開く場合も閉になる。
- * 派生 state (一覧の到着 / root の解決) を契機に変えない
+ * desktop のパネルの既定値。プロジェクト配下の新規会話だけ開き、使うのは利用者操作の新規会話の
+ * 入口 (App の handleNewChat) だけ (派生 state を契機に変えない)。
  */
 export function sessionFilesDefaultOpen({ singleColumn, projectId }: SessionFilesDefaultOpen): boolean {
   return !singleColumn && projectId !== "";
 }
 
 /**
- * 作業環境パネルのツリーで隠す名前。`.git` は開くと上限 (500 件) まで溢れる割に作業中に読み書きせず、
- * ネストした repo を展開したときも同じノイズになるため、名前一致で階層を問わず隠す。設定 → ファイル は
- * 隠さない (見たいときの逃げ道。docs/file-tree.md#隠す行)。
+ * 作業環境パネルのツリーで隠す名前。`.git` は上限まで溢れる割に作業中に読み書きせず、ネストした
+ * repo でも同じノイズになるため名前一致で隠す (設定 → ファイル は隠さない。docs/file-tree.md#隠す行)。
  */
 export const SESSION_FILES_HIDDEN_NAMES: readonly string[] = [".git"];
 
 /**
- * ファイル行から作業フォルダ自身 (ルート直下の `index.html`) を共有できるか。
- * プロジェクト会話の root はプロジェクト全体の公開になるため、一覧 DTO の `projectSession` が
- * **明示的な false** のときだけ許可する (`undefined` = 未ロードは出さない側へ倒す)。
+ * ルート直下の `index.html` から作業フォルダ自身を共有できるか。プロジェクト会話はプロジェクト全体の
+ * 公開になるため、`projectSession` が明示的な false のときだけ許可する (未ロードは出さない側)。
  */
 export function canShareSessionRoot(input: { sessionId?: string; projectSession?: boolean }): boolean {
   return (input.sessionId ?? "") !== "" && input.projectSession === false;

@@ -142,9 +142,8 @@ export const SESSION_ENV_TABS: readonly { id: SessionEnvTab; label: string }[] =
 ];
 
 /**
- * 出せるタブ。作業フォルダは root が決まっているとき、環境変数は要求元 (会話 or 作成先プロジェクト) が
- * あるときに出す。cwd が決まっている会話では両方なので、片方だけの面ではタブバーごと出さない
- * (押しても変わらない行を残さない)。設定ページは呼び出し側がパネル自体を出さない。
+ * 出せるタブ。作業フォルダは root、環境変数は要求元があるときに出す。cwd が決まっている会話では
+ * 両方なので、片方だけの面ではタブバーごと出さない (押しても変わらない行を残さない)。
  */
 export function sessionEnvTabs(input: {
   root: string;
@@ -157,9 +156,8 @@ export function sessionEnvTabs(input: {
 export type SessionEnvScope = { sessionId?: string; projectId?: string };
 
 /**
- * 要求元の識別子。パネルの key と取得の依存に使い、**cwd を共有する会話の切替でも**
- * 別の値になるようにする (切り替えでフォームのドラフトを破棄するため)。
- * どちらも無い (未所属の新規会話) は空文字で、タブを出さない。
+ * 要求元の識別子 (パネルの key と取得の依存)。cwd を共有する会話の切替でも別の値にして、フォームの
+ * ドラフトを破棄させる。どちらも無い (未所属の新規会話) は空文字でタブを出さない。
  */
 export function sessionEnvScopeKey(scope: SessionEnvScope): string {
   if (scope.sessionId) return `session:${scope.sessionId}`;
@@ -178,9 +176,8 @@ export function sessionEnvScopeFromKey(key: string): SessionEnvScope {
 }
 
 /**
- * 環境変数タブの要求元。会話があれば sessionId、未作成なら作成先プロジェクトの projectId。
- * 所有者は cwd なので会話 ID は必須ではなく、プロジェクト起点の新規会話でも保存できる。
- * 未所属の新規会話 (どちらも無い) は null で、タブを出さない。
+ * 環境変数タブの要求元。会話があれば sessionId、未作成なら作成先 projectId。所有者は cwd なので
+ * 会話 ID は必須ではなく、プロジェクト起点の新規会話でも保存できる (どちらも無ければ null)。
  */
 export function sessionEnvScope(input: { sessionId: string; projectId: string }): SessionEnvScope | null {
   if (input.sessionId) return { sessionId: input.sessionId };

@@ -23,9 +23,8 @@ export type WorkFolderPathParts = {
 };
 
 /**
- * パスを「省略される前置き」と「幅を確保する末尾」に分ける。`truncate` の末尾省略を反転させるのではなく、
- * 表示側で前置きだけを縮める (末尾は shrink-0) ために使う。末尾の段数を決めるのはセッション種別だけで、
- * 未取得 (undefined) はプロジェクト相当の 1 段に倒す。
+ * パスを「省略される前置き」と「幅を確保する末尾」に分ける (表示側で前置きだけを縮めるため)。
+ * 末尾の段数を決めるのはセッション種別だけで、未取得 (undefined) はプロジェクト相当の 1 段に倒す。
  */
 export function splitWorkFolderPath(path: string, projectSession?: boolean): WorkFolderPathParts {
   const segments = path
@@ -41,9 +40,8 @@ export function splitWorkFolderPath(path: string, projectSession?: boolean): Wor
 }
 
 /**
- * 作業フォルダの絶対パス。行の「絶対パスをコピー」と同じく `health.cwd` (rootCwd) を前置して作る。
- * root が `.` のときは `fileTreeAbsolutePath` が末尾へ `/.` を付けるため、rootCwd 自身を返す。
- * 取れない値 (rootCwd 未取得 / 絶対パスでない) は別の値で代替せず undefined にする。
+ * 作業フォルダの絶対パス。行の「絶対パスをコピー」と同じく `health.cwd` を前置し、root が `.` なら
+ * rootCwd 自身を返す。取れない値は別の値で代替せず undefined にする。
  */
 export function workFolderAbsolutePath(rootCwd: string | undefined, root: string): string | undefined {
   if (rootCwd === undefined) return undefined;
@@ -55,9 +53,8 @@ export function workFolderAbsolutePath(rootCwd: string | undefined, root: string
 }
 
 /**
- * 帯の段に必要な幅 (px)。省略前のパス全体と ⋯ を 1 つの組として扱うために `TabToolbar` の
- * context 最小幅へ渡す。足りない幅では組ごと全幅の段へ落ちるので、短いパスは省略されない
- * (context が 0 まで縮むと、組が細い段に残ってパスだけが切れる)。
+ * 帯の段に必要な幅 (px)。省略前のパス全体と ⋯ を 1 つの組として `TabToolbar` の context 最小幅へ渡す。
+ * 足りない幅では組ごと全幅の段へ落ちるので、短いパスは省略されない。
  */
 export function workFolderPathMinWidth(parts: { path: number; menu: number; gap: number }): number {
   return Math.max(0, Math.ceil(parts.path + parts.menu + parts.gap));

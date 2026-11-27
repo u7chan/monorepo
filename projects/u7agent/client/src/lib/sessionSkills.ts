@@ -1,10 +1,6 @@
 /**
- * セッションのスキル一覧 (GET /api/sessions/:id/skills と、セッション未確定の GET /api/skills/session) の
- * 取得先と表示用の導出。取得先の切替・状態の文言・グループ分け・注意書き・場所の表示をここ 1 箇所へ閉じ、
- * フックとコンポーネントは結果を使うだけにする (docs/api-session-turns.md)。
- * 再取得 (ポップアップを開き直したとき) の結果の畳み方もここに置く: 一覧を持っている間の失敗は
- * `reloadError` にして一覧を残す (索引として使える方が得なので、一瞬の失敗で消さない)。
- * 形式の正はサーバーの SessionSkillInfo で、ここは文言と取得先だけを持つ。
+ * セッションのスキル一覧の取得先と表示用の導出。切替・文言・グループ分け・注意書きをここ 1 箇所へ
+ * 閉じ、フックとコンポーネントは結果を使うだけにする (docs/api-session-turns.md)。
  */
 import type { SessionSkillInfo, SessionSkillsPreview, SessionSkillsResponse } from "../types";
 import { messageFor } from "./errors";
@@ -32,9 +28,8 @@ export const SESSION_SKILL_DISABLED_NOTE = "モデルからは呼ばれません
 export const SESSION_SKILL_SHADOWED_NOTE = "同名のスキルが優先されます（この行は使われません）";
 
 /**
- * 一覧の状態。`unavailable` は取得先がまだ判明していないときだけ (起動直後は保存された選択がまだ
- * 検証されていない) で、その間はボタンを押せない。取得先がある状態での失敗は `error` にして、
- * パネルに理由を出す (ボタンは押せるままにする)。
+ * 一覧の状態。`unavailable` は取得先がまだ判明していないときだけで、その間はボタンを押せない。
+ * 取得先がある状態での失敗は `error` にして理由を出し、ボタンは押せるままにする。
  */
 export type SessionSkillsState =
   | { status: "unavailable" }
@@ -71,9 +66,8 @@ export type SessionSkillsFetchers = {
 };
 
 /**
- * 取得先 1 つ分の一覧を取り、`canApply` が真のときだけ `setState` へ渡す。切替中に届いた古い応答はここで
- * 捨てる (プレビュー取得中に project / agent が変わる、送信中に別チャットへ移る)。適用は functional な
- * 更新にする: 初回取得では前の `loading` を、再取得では持っている一覧を保つかの判断を呼び出し側が持つ。
+ * 取得先 1 つ分の一覧を取り、`canApply` が真のときだけ `setState` へ渡す (切替中に届いた古い応答は
+ * ここで捨てる)。適用は functional な更新で、前の状態を保つ判断は呼び出し側が持つ。
  */
 export async function fetchSessionSkills(
   source: SessionSkillsSource,
