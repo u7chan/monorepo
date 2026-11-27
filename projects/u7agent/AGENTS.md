@@ -20,7 +20,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。
 
 ## 検証
 
-実装したら `pnpm check`（lint → format:check → docs:check → 型チェック → テスト → クライアントビルド）を実行する。設定と落とし穴は [docs/verification.md](docs/verification.md) を参照する。
+実装したら `pnpm check`（lint → format:check → docs:check → comment:check → 型チェック → テスト → クライアントビルド）を実行する。設定と落とし穴は [docs/verification.md](docs/verification.md) を参照する。
 
 - 意図的に残す lint 違反は理由コメント付きで disable する（`// oxlint-disable-next-line <rule> -- 理由`）。
 - コンポーネントは見た目を自分で持ち、呼び出し側の `className` は layout だけにする。見た目の切替は呼び出し側のクラスではなく props で行う。
@@ -39,7 +39,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。
 
 ## コメント
 
-長い設計論は `docs/` へ移し、コメントは1〜2行に収める。何を書くかは [ルートの AGENTS.md](../../AGENTS.md) に従う。同じ理由をコードと `docs/` に二重に書かない（どちらに置くかは [docs](#docs) 節の「読み手の範囲」で決める）。Issue / PR 番号はコメントに残さない（経緯は git 履歴と PR が持つ）。
+長い設計論は `docs/` へ移し、コメントは1〜2行に収める。何を書くかは [ルートの AGENTS.md](../../AGENTS.md) に従う。同じ理由をコードと `docs/` に二重に書かない（どちらに置くかは [docs](#docs) 節の「読み手の範囲」で決める）。Issue / PR 番号はコメントに残さない（経緯は git 履歴と PR が持つ）。2 行を超えるコメントは `pnpm comment:check` が `client/src` で数え、件数を ratchet で止める（対象の一覧は `--list`）。
 
 ## docs
 
