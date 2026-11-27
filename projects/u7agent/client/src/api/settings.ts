@@ -347,9 +347,8 @@ export const postVoiceInputTest = async (): Promise<VoiceInputTestResponse> => {
 };
 
 /**
- * 音声入力の Realtime セッション開始。offer SDP を BFF へ中継し、answer SDP を受け取る。
- * 本文は SDP を raw で送るため `hc` を使わず fetch を使う（BFF は `application/sdp` だけを受ける）。
- * 失敗は JSON の `error` / `code`（402 の残高不足など）を持つ ApiError になる。
+ * 音声入力の Realtime セッション開始。offer SDP を BFF へ中継し answer SDP を受け取る。本文は SDP を
+ * raw で送るため `hc` を使わず fetch を使い、失敗は `error` / `code` を持つ ApiError になる。
  */
 export const postVoiceInputSession = async (offerSdp: string, signal: AbortSignal): Promise<string> => {
   const res = await ensureOk(

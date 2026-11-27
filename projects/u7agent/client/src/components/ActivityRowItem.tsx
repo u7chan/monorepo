@@ -12,11 +12,8 @@ import { sessionEntryHref } from "../lib/route";
 import { ExternalLinkIcon } from "./icons";
 
 /**
- * 実行状況の 1 行。操作を持たない行は行全体が会話のリンク (タップ領域を行にする)。
- * `起動` / `開く` を持つ行だけ「タイトル + メタのリンク」と「状態ピル + 操作」に分ける
- * (リンクの中に button を入れ子にしない)。操作の有無は lib/activityServe が決める。
- * 起動に失敗した理由は操作の有無と切り離して行に出す (状態を取得できず操作が消えても、
- * 失敗した会話の理由を残す)。
+ * 実行状況の 1 行。操作の無い行は行全体をリンクにし、`起動` / `開く` を持つ行だけリンクと状態・操作に
+ * 分ける (リンクの中に button を入れ子にしない)。起動に失敗した理由は操作の有無と切り離して出す。
  */
 export type ActivityRowItemProps = {
   row: ActivityRow;
