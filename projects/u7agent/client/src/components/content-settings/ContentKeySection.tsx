@@ -2,9 +2,8 @@ import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { StoredApiKeySection } from "../StoredApiKeySection";
 
 /**
- * APIキーの入力。保存済みのキーは再表示しないため、欄は常に空から始める。
- * キーは画像・音声・BGM で共有し、画像の生成元が Codex でも音声 / BGM に要るので、
- * タブではなくページ共通の帯の下（変更を押したときだけ開く 1 行）に置く。
+ * APIキーの入力。保存済みのキーは再表示しないため欄は常に空から始める。キーは 3 種別で共有し、
+ * タブではなくページ共通の帯の下 (変更を押したときだけ開く 1 行) に置く。
  */
 export function ContentKeySection({
   keyStored,

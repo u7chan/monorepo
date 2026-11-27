@@ -20,12 +20,8 @@ import { fieldLabelClass, fieldNameClass } from "./fieldStyles";
 const MODEL_EFFORT_PICKER_WIDTH = 320;
 
 /**
- * コンポーザーの Model / Effort 切り替え。トリガー (入力欄の上の状態行) と、その上へ開く popover を
- * 1 つで持つ。設定の入力を行に置くと開閉のたびにコンポーザーが伸び、メッセージ領域がその分だけ縮むため、
- * popover (top layer) に出してレイアウトを動かさない (docs/ui-layout.md)。位置と大きさは
- * `client/src/lib/popoverPlacement.ts` が決める (スキル一覧と同じ計算)。開閉は native popover に任せ、
- * 外側クリックと Escape の終了は標準の light dismiss、フォーカスが外へ出たときは `hidePopover()` を通す。
- * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
+ * コンポーザーの Model / Effort 切り替え。行に置くと開閉でコンポーザーが伸びるため popover (top layer)
+ * に出し、位置は lib/popoverPlacement.ts が決める。開閉は native popover に任せ、常時 mount する。
  */
 export function ModelEffortPicker({
   settings,

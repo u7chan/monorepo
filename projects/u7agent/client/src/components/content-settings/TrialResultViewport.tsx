@@ -7,13 +7,8 @@ import { CopyButton } from "../chat/CopyButton";
 import { DownloadIcon, PencilIcon, RefreshIcon, TrashIcon } from "../icons";
 
 /**
- * 1 つの結果。生成タブの直近の結果（`latest`）と、履歴タブの詳細（`history`）で同じ骨格を使う。
- * 状態・失敗・課金・送った内容・成果物は共通で、面ごとに違うのは成果物の見せ方と、
- * 結果から次へ進む導線（既定へ保存 / この内容で編集 / もう一度生成）だけにする。
- *
- * `latest` は生成直後に同じ画面で閉じるためのカードなので、入力欄へ戻す導線は置かない
- * （プロンプトの入力欄はすぐ上にある）。`history` は履歴を読む面なので、プロンプトのコピーと
- * 「この内容で編集」を出す。
+ * 1 つの結果。生成タブの直近 (`latest`) と履歴の詳細 (`history`) で同じ骨格を使い、成果物の見せ方と
+ * 次へ進む導線だけを変える (`latest` はすぐ上に入力欄があるので戻す導線を置かない)。
  */
 export function TrialResultViewport({
   trial,
