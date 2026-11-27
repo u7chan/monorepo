@@ -1,6 +1,6 @@
-# 検証（lint / format / docs）
+# 検証（lint / format / docs / comment）
 
-実装後は `pnpm check`（lint → format:check → docs:check → 型チェック → テスト → クライアントビルド）を実行する。テストの判断基準と手動受入は [testing.md](testing.md)。
+実装後は `pnpm check`（lint → format:check → docs:check → comment:check → 型チェック → テスト → クライアントビルド）を実行する。テストの判断基準と手動受入は [testing.md](testing.md)。
 
 BGMの通常検証はダミーキーと合成stubだけを使う。[実 API 受入](bgm-generation.md#検証と実api受入) は別途完了しているが、自動テストやGUI fixtureの成功をその代わりにしない。GUIの結果は担当者がPRへ記録する（実APIの課金確認とは別の受入）。
 
@@ -22,6 +22,12 @@ BGMの通常検証はダミーキーと合成stubだけを使う。[実 API 受�
 **project root の外を指すリンク（モノレポ全体への参照）は未検査**にする。CI は project 単位のビルドコンテキストでこの script を走らせるため、`../../AGENTS.md` のような参照先が存在せず、検査すると常に失敗する。未検査の件数は結果に出す。
 
 検査しないのは「その文が実装の写像かどうか」で、そこは review で見る（判定式は [AGENTS.md](../AGENTS.md#docs)）。
+
+## comment
+
+`pnpm comment:check`（`scripts/comment-check.mjs`）。`client/src` のコメントのうち、本文が 3 行以上あるものを数える（`//` の連続は 1 つ、空行は数えない）。予算は script の `LONG_COMMENT_BUDGET` が正で、現在の実測値を ratchet にしている。超えると失敗し、予算を上げるときは diff に出してレビューで合意する。下回ったときは下げ先の値を stderr に出す（下方向の追従は人手）。
+
+`pnpm comment:check --list` は対象を `file:line` と行数・字数つきで stdout へ列挙する（summary は stderr）。これがリファクタリング対象の一覧で、`docs/` へ理由を移すか 1〜2 行に縮める。中身が What / How / Why か、`docs/` と二重に書いていないかは機械的に判定できないため、ここでは行数だけを見て中身は review で見る（判定式は [AGENTS.md](../AGENTS.md#コメント)）。文字列・テンプレート・正規表現の中の `//` は数えないが、JSX のテキストに 3 行続く `//` は数える（誤検出し得る）。server は対象外で、掃除が済んだ時点で `scanTargets` に足す。
 
 ## lint
 
