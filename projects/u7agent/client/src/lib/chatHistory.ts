@@ -1,6 +1,7 @@
-// 全履歴ページを chat のバブル列へ写す純関数。resync (最新ページで新しい側だけ差し替え) と
-// 上方向の追加取得 (古い側を前置き) を同じ表現で扱い、entry id で重複排除する。
-// スクロール位置の維持は ChatArea 側の責務で、ここでは順序と状態だけを決める。
+/**
+ * 全履歴ページを chat のバブル列へ写す純関数。順序と状態だけを決め、スクロール位置の補正は
+ * ChatArea が担う (docs/frontend.md#全履歴のタイムラインと仮想スクロール)。
+ */
 import { splitAttachedFiles } from "./attachments";
 import { isPendingAskUserCard } from "./askUser";
 import type { Bubble, CompactionMarker, ToolCard } from "./chatTypes";
@@ -166,11 +167,8 @@ function keptUpTo(items: { bubble?: Bubble; marker?: CompactionMarker }[], posit
 }
 
 /**
- * ページが保持分と繋がるかを prevCursor で判定する。prevCursor はページ先頭の直前の item id なので、
- * 保持中にあれば「そこまで残してページで置き換える」、null ならブランチ先頭 (保持分は現行に無い)、
- * 見つからなければ欠落区間 (別タブで limit 以上追記された / 分岐が変わった) として取り直す。
- * prevCursor が無くてもページ先頭が保持中の item なら重なりとみなす (同じ最新ページの再同期で
- * gap と誤判定しないため)。
+ * ページが保持分と繋がるかを prevCursor で判定する。保持中にあればそこまで残して置き換え、
+ * null ならブランチ先頭、見つからなければ欠落区間として取り直す (重なりは gap と誤判定しない)。
  */
 function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
   const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
@@ -195,9 +193,8 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
 }
 
 /**
- * ライブバブルと item の同一性。送信の run id が分かるバブルは runId の一致で厳密に対応付ける
- * (別クライアントの同一文面 entry を自分のエコーと誤認しない)。どちらかに run id が無いときは
- * role + 正規形の本文で突き合わせる (送信IDを持たない保存済みの履歴への縮退)。
+ * ライブバブルと item の同一性。送信の run id が分かるバブルは runId の一致で厳密に対応付け、
+ * どちらかに無いときは role + 正規形の本文へ縮退する (docs/frontend.md)。
  */
 function matchesLive(
   bubble: Bubble,
@@ -242,9 +239,8 @@ function liveCandidatesOf(items: HistoryItem[]): Map<Bubble["role"], LiveCandida
 }
 
 /**
- * ライブバブルを、新しく入った item の列と突き合わせる。本文の集合ではなく、role と同一性
- * (run id、無ければ正規形の本文) が一致する item を後ろから順に対にするので、過去に同じ文面が
- * あっても新規送信のエコーを消さない。返す consumed の分だけバブルと pendingEchoIds を落とす。
+ * ライブバブルを新しい item の列と後ろから突き合わせる。本文の集合ではなく role と同一性
+ * (run id、無ければ正規形の本文) で対にし、consumed の分だけバブルと pendingEchoIds を落とす。
  */
 function reconcileLive(
   live: Bubble[],
@@ -273,9 +269,8 @@ function reconcileLive(
 }
 
 /**
- * pending の送信エコーのうち、新しい領域に自分の run の item (同じ runId) が載ったものを吸収する。
- * pending は他クライアントの同一文面 entry と区別できないため、run id が一致する item だけを対象に
- * する (run id が無い item は、後段の `consumePendingFallback` が文書化済みの縮退で扱う)。
+ * pending のエコーのうち、新しい領域に同じ runId の item が載ったものを吸収する。
+ * 他クライアントの同一文面とは区別できないため、run id の無い item は後段の縮退に任せる。
  */
 function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<number> {
   const consumed = new Set<number>();
@@ -295,10 +290,8 @@ function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<
 }
 
 /**
- * run 対応を失った履歴 (item に runId が載らない) への縮退の突き合わせ。サーバー再起動で実行時の
- * 対応表が消えた item は、runId を持つ item (別 run の entry) と区別できないため、文書化済みの
- * 契約どおり role + 本文の正規形と、送信時点で既知だった位置 (`since`) より後という条件でだけ
- * 対応付ける。`since` が見つからないときは何も返さない (誤った吸収をしない)。
+ * run 対応を失った履歴への縮退の突き合わせ。role + 正規形の本文と `since` より後という条件だけで
+ * 対応付け、`since` が見つからないときは何も返さない (誤った吸収をしない)。
  */
 export function fallbackEchoTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
   // 未送信 / 受理済み (サーバーが状態を明示している送信) は本文の縮退に使わない。新しく payload から
@@ -345,9 +338,8 @@ export function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> 
 }
 
 /**
- * 現行ブランチ全体の件数から summarized の範囲を付け直す。保持しているのは最新側の連続した範囲
- * なので、各履歴バブルの全体 index は「全体件数 − 保持件数 + 順位」で求まる。これで境界を跨いだ
- * 過去ページ (未取得の summarized を含む) も正しく薄暗くできる。
+ * 保持分は最新側の連続した範囲なので、各バブルの全体 index は「全体件数 − 保持件数 + 順位」で求める。
+ * これで境界を跨いだ過去ページの summarized も正しく薄暗くできる。
  */
 export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summarizedMessageCount: number): Bubble[] {
   const history = bubbles.filter((bubble) => bubble.entryId !== undefined);
@@ -365,10 +357,7 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
 
 /**
  * live を「保持分より手前 (carried)」と「保持分より後ろ (最新ターン / 送信直後)」に分ける。
- * prev に含まれない live (テストや rebuild が別に渡す分) は手前扱い。未送信 / 受理済みは履歴の位置に
- * 関わらず末尾へ置く (まだ履歴 item になっていない送信で、保持分より手前に混ぜると位置が逆転する)。
- * 回答待ちの ask_user カードも末尾へ固定する: 待機中は次のイベントが来ず、先頭へ繰り上げると
- * 長い会話でカードが画面外に消える (本文を持たない assistant は履歴 item に現れず突き合わせもされない)。
+ * 未送信・受理済みと回答待ちのカードは末尾へ置く (手前に混ぜると逆転し、待機中は画面外に消える)。
  */
 function splitLive(
   prev: HistoryBundle,
@@ -389,10 +378,8 @@ function splitLive(
 }
 
 /**
- * resync 相当のマージ。最新ページで「新しい側」だけを差し替え、ページ先頭より古い取得済みページは残す。
- * ページが保持分と繋がらない (gap) ときは適用せず、呼び出し側が欠落区間を取ってから再適用する。
- * ライブバブルはページの新しい領域と一致した分だけ落とし、carried になった分は保持分の手前、
- * 送信直後のローカルエコーと保持分より後のタンは末尾へ置く。
+ * resync 相当のマージ。最新ページの新しい側だけを差し替え、繋がらない (gap) ときは適用しない。
+ * ライブバブルは一致分だけ落とし、carried は手前、最新ターンのライブと送信直後のエコーは末尾へ置く。
  */
 export function mergeHistoryPage(
   prev: HistoryBundle,
@@ -441,9 +428,8 @@ export function mergeHistoryPage(
       index: marker.index + carried.length + kept.length,
     })),
   ].sort((a, b) => a.index - b.index);
-  // まだ残っている pending エコーは、run 対応を失った履歴 item (runId 無し) となら本文の正規形 +
-  // `since` の位置条件で突き合わせる。サーバー再起動で実行中の run が消えてもエコーを残さない
-  // (runId を持つ別 run の entry は `fallbackEchoTarget` が対象外にする)
+  // 残った pending エコーを、runId の無い履歴 item と本文の正規形 + `since` の位置条件で突き合わせる
+  // (runId を持つ別 run の entry は対象外)。サーバー再起動で run が消えてもエコーを残さない
   const fallbackConsumed = consumePendingFallback(assembled, markers, keptPending);
   const bubbles =
     fallbackConsumed.size > 0 ? assembled.filter((bubble) => !fallbackConsumed.has(bubble.id)) : assembled;
@@ -472,10 +458,8 @@ export function rebuildHistoryPage(
 }
 
 /**
- * 古いページの前置き。既に持っている item は捨て、重なったページを二度足さない。
- * carried になっているライブバブル (legacy 初期表示の残りなど) も、追加分の item と role + 正規形の
- * 順序で突き合わせて消費する。残りは追加分より古いので手前へ戻し、送信直後のエコーだけ末尾に残す。
- * 追加した件数を prependSeq として返し、ChatArea がスクロール位置の補正に使う。
+ * 古いページの前置き。重なった item は二度足さず、carried のライブバブル (legacy 初期表示の残り) は
+ * role + 正規形の順序で追加分と突き合わせて消費し、残りは手前へ戻す (エコーだけ末尾。prependSeq を返す)。
  */
 export function prependHistoryPage(
   prev: HistoryBundle & { messageCount: number; summarizedMessageCount: number },
