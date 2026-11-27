@@ -47,9 +47,10 @@ export function chatRenderItems({
   let lastMessageIndex: number | undefined;
   for (let position = 0; position <= bubbles.length; position += 1) {
     const bubble = bubbles[position];
-    // 待機中の送信はターンの区切りに使わない。実行中ターンの応答が後ろに積まれる窓 (最初の delta より前に
-    // 送った 2 通目) でも、結末がそのターンの最後の応答へ付くようにする。同じ run id の追加入力は
-    // 実行の続きなので、表示上のターンを閉じない (Done を最後の応答だけに残す)
+    /**
+     * 待機中の送信はターンの区切りに使わない。同じ run の追加入力は実行の続きとして扱い、
+     * 先に送った 2 通目が後ろに積まれても結末をそのターンの最後の応答へ付ける。
+     */
     if (bubble === undefined || (bubble.role === "user" && bubble.queued !== true && !sameRun(bubble, openTurn))) {
       // 結末はターンを閉じてから付ける。境界ラベル・圧縮の区切りはターンの後ろに並ぶ
       attachTurnEnd(items, lastMessageIndex, openTurn);
@@ -68,9 +69,10 @@ export function chatRenderItems({
     }
     if (bubble) {
       const turnEnd = itemTurnEnd(bubble);
-      // 待機中の送信は transcript に出さない (コンポーザー直上のブロックが担う)。配列を filter せず
-      // ここで push だけを見送るのは、marker.index / boundaryPosition / ターンの結末の位置算術を
-      // 1 つもずらさないため
+      /**
+       * 待機中の送信は transcript に出さない (コンポーザー直上のブロックが担う)。配列を filter せず
+       * push だけ見送るのは、marker.index とターンの結末の位置算術を 1 つもずらさないため。
+       */
       if (bubble.queued !== true && !(liveTurn && pendingToolHost(bubble))) {
         items.push({
           kind: "message",
@@ -86,9 +88,8 @@ export function chatRenderItems({
 }
 
 /**
- * 進行中のターンのバブルか (ツール履歴の実行中の行とコピーを出さない根拠)。開いている応答に加え、
- * 本文 item を引き取った host も run の終端までは進行中として扱う: `assistant_end` で開いている応答が
- * 外れても、run_end より前に実行中のカードとコピーを履歴へ出さない。
+ * 進行中のターンのバブルか (ツール履歴の実行中の行とコピーを出さない根拠)。本文 item を引き取った
+ * host も run の終端までは進行中として扱い、run_end より前に履歴へ出さない。
  */
 export function isLiveTurnBubble(
   bubble: Bubble,
@@ -99,10 +100,8 @@ export function isLiveTurnBubble(
 }
 
 /**
- * 進行中のターンで、完了したツールがまた無い host。ツール履歴の見出しも本文も出せないため
- * 描画しない (実行中のツールは入力欄の上の状態行が受け持つ)。run が終われば host は確定し、
- * 結果の無いカードも並べる (何が走っていたかを後から確かめられなくしない)。本文 item を引き取った
- * host (text あり) と、回答待ちのカードを抱える host は隠さない (回答手段を消さない)。
+ * 進行中のターンで、完了したツールがまた無い host は描画しない (実行中のツールは状態行が受ける)。
+ * run が終われば結果の無いカードも並べる (本文あり host と回答待ち host は隠さない)。
  */
 function pendingToolHost(bubble: Bubble): boolean {
   if (!isToolHostBubble(bubble) || bubble.text !== "") return false;
@@ -147,12 +146,8 @@ function itemTurnEnd(bubble: Bubble): TurnEnd | undefined {
 }
 
 /**
- * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す (user バブル由来の導出)。
- * item 自身が結末を持つときは上書きしない。値の無いターン (再起動後) と、user entry が
- * 保存されなかったターン (未送信) には足さない。本文を持つ応答だけに足すのは、ツールだけのターンが
- * ライブでは本文の空な assistant バブル (`ensureAssistant`) を持ち、履歴では表示メッセージに
- * ならないため (付けるとライブと履歴で見え方が食い違う)。user 自身のメッセージの下にも出さない:
- * その送信が失敗したように読める。
+ * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す (item 自身が持つなら上書きしない)。
+ * 本文を持つ応答だけ・user バブルの下には出さない (ライブと履歴で見え方が食い違うため)。
  */
 function attachTurnEnd(items: ChatRenderItem[], index: number | undefined, turn: Bubble | undefined): void {
   if (index === undefined || turn === undefined || turn.unsent === true) return;
