@@ -28,9 +28,8 @@ export type SharePreviewState =
   | { status: "ready"; preview: SharedContentPreviewResponse };
 
 /**
- * 共有ダイアログの state。この会話の共有物だけを扱い、全共有物の一覧は持たない。
- * 公開は非同期なので `publishing` の間だけ状態を読み直し、終端は `status` と `lastError` の組で読む。
- * ダイアログを閉じると unmount し、開き直しは一覧の GET から復元する（画面側で状態を持ち越さない）。
+ * 共有ダイアログの state。この会話の共有物だけを扱い、公開中だけ状態を読み直して終端は
+ * `status` と `lastError` の組で読む。閉じると unmount し、開き直しは一覧の GET から復元する。
  */
 export interface SharedContentsState {
   items: SharedContentResponse[];

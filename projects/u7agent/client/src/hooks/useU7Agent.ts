@@ -32,8 +32,7 @@ import { useSessions, type PendingEntry } from "./useSessions";
 
 /**
  * 画面 (App) から見た facade。実装は責務ごとに分ける: health / catalog は useRuntimeCatalog、
- * project 一覧・選択は useProjects、session の一覧・lifecycle・SSE は useSessions、
- * 送信 / 停止の手順は sessionActions、Model / Effort の導出は lib/composerSettings。
+ * project は useProjects、session と SSE は useSessions、送信 / 停止は sessionActions。
  */
 export type UseU7AgentOptions = {
   /** `/s/<id>` が指定する会話。一覧のロード後にこの会話だけを選ぶ */

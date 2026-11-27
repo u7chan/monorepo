@@ -1,7 +1,6 @@
 /**
- * 共有カタログ（health / catalog を配る useRuntimeCatalog）の取得と並びの採用を 1 箇所へ閉じる。
- * **後から開始した取得だけを採用する**: 並べ替えの確定も同じ世代を進めるため、確定より前に
- * 開始して遅れて届いた取得は、確定した並びを丸ごと巻き戻せない（client/src/hooks/requestGate.ts）。
+ * 共有カタログの取得と並びの採用を 1 箇所へ閉じる。**後から開始した取得だけを採用する**: 並べ替えの
+ * 確定も同じ世代を進めるので、確定より前に始まった遅い取得が並びを巻き戻せない。
  */
 import { createRequestGate } from "../hooks/requestGate";
 import type { CatalogResponse } from "../types";

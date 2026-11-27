@@ -190,9 +190,8 @@ export type AskUserCloseDeps = {
 };
 
 /**
- * `✕` でカードを閉じる。未回答が残るときだけ確認を挟み、確定時にカードが失効していたら送らない。
- * 確認を開いている間に会話が切り替わると、送信は確定時の会話へ古い `cardId` で飛ぶ (toolCallId の
- * 会話をまたいだ一意性は契約に無い) ため、送る直前にカードの生存を確かめる。
+ * `✕` でカードを閉じる。未回答が残るときだけ確認を挟み、確定時にカードが失効していたら送らない
+ * (確認中に会話が切り替わると古い `cardId` が飛ぶため、送る直前に生存を確かめる)。
  */
 export async function closeAskUserCard(deps: AskUserCloseDeps): Promise<void> {
   const request = askUserCloseConfirmRequest(askUserUnresolvedCount(deps.drafts));
