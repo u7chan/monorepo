@@ -92,6 +92,39 @@
 
 エラー: 待受 PID を特定できないとき、指定ポートを待っているプロセスが lease の起動に由来しないときは 409、解放を確認できないときは 502、サンドボックス未設定とアプリデータが使えないときは 503（変更系は `state: "not_stored"` を付ける）。409 では lease を残すため、起動ツリーから外れた待受はエージェントの `debug_stop` でも一覧からの強制停止でも回収しない（無関係なプロセスを停止しない側に倒す。ポートが待受を失えば lease は掃除される）。
 
+### 一時共有（Cloudflare Quick Tunnel）
+
+設定 → ランタイム のサービスの稼働中カードと、チャットから、動いているサービスを期限つきで外へ見せる。設計は [service-tunnel.md](service-tunnel.md#状態と-api) を正とする。状態は BFF のメモリだけに持ち、同時に 1 本だけ共有できる。
+
+| メソッド | パス | 契約 |
+| --- | --- | --- |
+| GET | `/api/serve/tunnel` | 状態（下記）。起動基盤が使えないときも 200 で `available: false` と理由 |
+| POST | `/api/serve/tunnel/start` | `{ generation, ttlMinutes }`。`active` を返す。同期 |
+| POST | `/api/serve/tunnel/stop` | 冪等に `idle` を返す |
+
+```json
+{
+  "available": true,
+  "unavailableReason": null,
+  "state": "active",
+  "provider": "cloudflare-quick",
+  "active": {
+    "url": "https://quiet-river-a1b2.trycloudflare.com",
+    "startedAt": 1770000000000,
+    "expiresAt": 1770003600000,
+    "target": { "title": "アプリの会話", "cwd": "projects/app", "command": "pnpm dev" }
+  },
+  "lastEnded": null
+}
+```
+
+- `available` は起動基盤（`cloudflared` と会話ストア）がこの BFF で使えるか。使えない理由は利用者向けの文言で `unavailableReason` に載る。起動基盤が使えても、開始時にサンドボックス未設定なら 503 になる
+- `active.target` は開始時に確認した起動元の会話名・`cwd`・起動コマンド。同じ会話が `serve` で起動し直して再束縛したときも更新する。起動元の会話が引けないが記録は一致するときは `title` だけ `null`、記録も待受も一致しないときはすべて `null`
+- `lastEnded` は直近の終了（`reason` と `at`）で、次の開始まで持つ。`message` は開始の失敗のときだけ、分類に応じた固定文言を載せる
+- `POST .../start` の body は必須。`ttlMinutes` は `server/src/schema/` が許す値だけを受ける。`generation` は確認した状態の値で、実行時にサービスが稼働していない・値が変わった・すでに共有中なら 409。開始の失敗は 502（起動と DNS 確認）、サンドボックス未設定と起動基盤が使えないときは 503。`cloudflared` の生の出力は載せない
+- `POST` の 2 本にだけ `sameOriginOnlyGuard` を掛ける。GET は、平文 HTTP の LAN 配備でブラウザが `Origin` も `Sec-Fetch-Site` も付けないため、掛けない（[ブラウザからの書き込み](api.md#ブラウザからの書き込みorigin--csrf-対策)）。このガードは認証ではない
+- 応答は失敗も含めて `Cache-Control: no-store`（`url` が共有そのもの）
+
 ## 共有コンテンツ
 
 静的な成果物を Cloudflare の静的アセットとして公開し、公開先の状態とライフサイクルを管理する。状態遷移・検証・エラーの契約は [static-sharing-api.md](static-sharing-api.md#api-契約) を正とする。

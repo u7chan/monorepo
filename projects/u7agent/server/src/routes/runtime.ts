@@ -5,6 +5,7 @@ import type { ContentSettingsService } from "../content-settings";
 import { messageFor } from "../http";
 import { SandboxRuntimeError, type SandboxRuntimeDiagnostics } from "../sandbox/client";
 import { RUNTIME_MODELS_UNAVAILABLE_MESSAGE, SandboxRuntimeInfoSchema, type RuntimeInUseResponse } from "../schema";
+import type { ServeTunnelStatusSource } from "../service-tunnel";
 import type { TitleSummarySettingsService } from "../title-summary-settings";
 import type { WebSearchSettingsService } from "../web-search-settings";
 
@@ -15,6 +16,7 @@ export function createRuntimeRoutes({
   webSearchSettings,
   titleSummarySettings,
   cloudflareSettings,
+  serveTunnel,
 }: {
   pi: PiBff | null;
   /** 実行環境の診断 (未設定なら not_configured)。workspace クライアントとは別に注入する */
@@ -23,6 +25,7 @@ export function createRuntimeRoutes({
   webSearchSettings: WebSearchSettingsService;
   titleSummarySettings: TitleSummarySettingsService;
   cloudflareSettings: CloudflareSettingsService;
+  serveTunnel: ServeTunnelStatusSource;
 }) {
   return {
     models: (c: Context) => {
@@ -40,6 +43,7 @@ export function createRuntimeRoutes({
       const webSearch = webSearchSettings.settings();
       const title = titleSummarySettings.settings();
       const cloudflare = cloudflareSettings.status();
+      const tunnel = serveTunnel.status();
       const response: RuntimeInUseResponse = {
         title: {
           enabled: title.enabled,
@@ -68,6 +72,7 @@ export function createRuntimeRoutes({
           available: cloudflare.available,
           accountId: cloudflare.accountId,
         },
+        tunnel: { available: tunnel.available, unavailableReason: tunnel.unavailableReason },
       };
       return c.json(response);
     },

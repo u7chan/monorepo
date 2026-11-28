@@ -63,6 +63,8 @@ import {
   type SecretCipher,
 } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
+import { ServeTunnelService, type ServeTunnelControl, type TunnelDnsLookup } from "./service-tunnel";
+import { createCloudflaredLauncher, type CloudflaredLauncher } from "./cloudflared";
 import { SharedContentsService } from "./shared-contents";
 import { SHARED_THUMBNAIL_DIR_NAME, createSharedThumbnailStore } from "./shared-thumbnails";
 import { createSharedContentExclusions } from "./shared-content-exclusions";
@@ -170,6 +172,14 @@ export type CreateBffAppOptions = {
   previewSandbox?: SandboxDownloadPlanClient | null;
   /** serve の稼働判定に使うプローブ。テストで差し替える */
   serveProbe?: ServeProbe;
+  /** BFF の待受ポート。一時共有の子の記録を、同じ会話ストアを使う別の BFF と分ける */
+  port?: number;
+  /** 一時共有の起動基盤。未指定は env と会話ストアから組む (テストで差し替える) */
+  cloudflared?: CloudflaredLauncher;
+  /** 共有 URL の DNS 確認。未指定は Cloudflare の DoH を叩く */
+  tunnelDns?: TunnelDnsLookup;
+  /** 一時共有の制御。未指定は実体を組む (テストで差し替える) */
+  serveTunnel?: ServeTunnelControl;
   /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */
   serveHost?: string;
   /**
@@ -235,6 +245,10 @@ export type BffContext = {
   titleSummaryTest: TitleSummaryTest | null;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;
+  /** 一時共有の状態と開始・停止。メモリだけに持つ */
+  serveTunnel: ServeTunnelControl;
+  /** 一時共有の起動基盤。起動ログの利用可否と、前の BFF が残した子の掃除に使う */
+  cloudflared: CloudflaredLauncher;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
   secrets: SecretService;
   /** Cloudflare の資格情報。BFF 専用で、公開バックエンドと接続確認だけが平文を読む */
@@ -320,6 +334,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     titleSummaryTest: integration.titleSummaryTest,
     gitSettings: integration.gitSettings,
     serve: publishing.serve,
+    serveTunnel: publishing.serveTunnel,
+    cloudflared: publishing.cloudflared,
     secrets: integration.secrets,
     cloudflareSettings: integration.cloudflareSettings,
     cloudflareConnection: publishing.cloudflareConnection,
@@ -770,6 +786,8 @@ async function openConversation(input: {
 /** 段 8: serve・共有コンテンツの公開・Cloudflare の接続確認・バックアップ */
 type PublishingStage = {
   serve: ServeService;
+  serveTunnel: ServeTunnelControl;
+  cloudflared: CloudflaredLauncher;
   sharedContents: SharedContentsService;
   cloudflareConnection: CloudflareConnectionService;
   backup: BackupService;
@@ -808,6 +826,25 @@ async function startPublishing(input: {
     ...(opts.serveProbe ? { probe: opts.serveProbe } : {}),
   });
   runtime.setServe(createServeToolHost(serve));
+  const cloudflared =
+    opts.cloudflared ??
+    createCloudflaredLauncher({
+      env: process.env,
+      sessionStoreDir: storeDir,
+      rootCwd: cwd,
+      instancePort: opts.port ?? 4317,
+      log: (line) => console.log(`[u7agent] ${line}`),
+    });
+  const serveTunnel =
+    opts.serveTunnel ??
+    new ServeTunnelService({
+      launcher: cloudflared,
+      serve,
+      sandboxConfigured: serveSandbox !== null,
+      sandboxHost: opts.serveHost ?? sandboxHostFromUrl(process.env.PI_SANDBOX_URL),
+      ...(opts.tunnelDns === undefined ? {} : { dns: opts.tunnelDns }),
+      log: (line) => console.log(`[u7agent] ${line}`),
+    });
   // ask_user の待機は run 状態と同じ SessionStore が持つ。ツール定義はこのホストへ委譲する
   runtime.setAskUser(store.askUserHost());
   // egress の承認も同じ SessionStore が持つ (メモリのみ、abort / 削除で未承認へ戻す)
@@ -865,7 +902,7 @@ async function startPublishing(input: {
     knownSkills: () => ({ builtin: BUILTIN_SKILLS.map((skill) => skill.name) }),
     knownTools: runtime.knownToolNames,
   });
-  return { serve, sharedContents, cloudflareConnection, backup };
+  return { serve, serveTunnel, cloudflared, sharedContents, cloudflareConnection, backup };
 }
 
 /** 会話ストアへ渡す AI 要約の口。設定は呼び出しのたびに読み、世代の比較はストアが行う */

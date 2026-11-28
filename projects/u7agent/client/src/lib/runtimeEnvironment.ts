@@ -401,7 +401,16 @@ function runtimeSpeechVoice(content: RuntimeInUseContent | null): { note?: strin
 
 /** 「外部連携」カードの行。モデルではないため「利用中のモデル」へ混ぜない */
 export function runtimeIntegrationRows(inUse: RuntimeInUseResponse | null): RuntimeInfoRow[] {
-  return [runtimeWebSearchRow(inUse), runtimeCloudflareRow(inUse)];
+  return [runtimeWebSearchRow(inUse), runtimeCloudflareRow(inUse), runtimeTunnelRow(inUse)];
+}
+
+/** 一時共有は URL を出す機能ではないため、使えるかどうかと理由だけを 1 行で示す */
+function runtimeTunnelRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow {
+  const label = "一時共有";
+  if (!inUse) return { label, value: RUNTIME_UNKNOWN };
+  const { available, unavailableReason } = inUse.tunnel;
+  if (available) return { label, value: "利用できます" };
+  return { label, value: "利用できません", note: unavailableReason ?? undefined };
 }
 
 function runtimeWebSearchRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow {

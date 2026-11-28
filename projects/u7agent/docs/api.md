@@ -167,7 +167,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/runtime/in-use` | 環境タブを開いたときと再読み込みで取得する、会話タイトル・コンテンツ生成・Web 検索・Cloudflare の設定値 |
+| GET | `/api/runtime/in-use` | 環境タブを開いたときと再読み込みで取得する、会話タイトル・コンテンツ生成・Web 検索・Cloudflare・一時共有の起動可否 |
 
 ```json
 {
@@ -188,13 +188,15 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
     "bgmModel": "<provider>/<id>"
   },
   "webSearch": { "enabled": true, "provider": "tavily", "host": "api.tavily.com" },
-  "cloudflare": { "configured": true, "available": true, "accountId": "<account-id>" }
+  "cloudflare": { "configured": true, "available": true, "accountId": "<account-id>" },
+  "tunnel": { "available": true, "unavailableReason": null }
 }
 ```
 
 - アプリ既定モデルは含めない。正は `GET /api/health` の `model` と `defaultModelUnset` / `defaultModelError` / `availabilityError` で、画面は既定モデルとこの応答を別々に読む（`health.model` の欠落を「未設定」と同一視しない）
 - `content.speechVoice` の `null` は「指定なし」で、保存値の空文字を値として返さない。`title.thinkingLevel` は保存値、`title.effectiveThinkingLevel` は実際の要約に使う Effort で、画面は後者だけを「利用中」として出す
 - `webSearch.host` は既定 provider の外部送信先。`cloudflare.accountId` は [Cloudflare の設定](api-settings.md) と同じ公開情報で、トークンは含めない
+- `tunnel` は一時共有の起動基盤がこの BFF で使えるか。`unavailableReason` は使えない理由の文言で、使えるときは `null`。開始できるかはここでは判定せず、開始は `POST /api/serve/tunnel/start` の 503 で分かる（[service-tunnel.md](service-tunnel.md#状態と-api)）
 - APIキー・OAuth トークン・暗号文・モデルカタログは返さない（設定の面ごとの API はカタログを含むため、この画面はそれらを再利用しない）。この画面は Cloudflare の接続確認もモデルカタログの再取得も行わない
 - 200: 集約応答。取得の失敗はアプリ DB を読めないときだけで、既存のガードと同じ `{ "error": ... }` の 503 になる
 

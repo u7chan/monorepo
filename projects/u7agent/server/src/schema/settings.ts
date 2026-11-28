@@ -707,11 +707,19 @@ export const RuntimeInUseCloudflareSchema = z.object({
   accountId: z.string().nullable(),
 });
 export type RuntimeInUseCloudflare = z.infer<typeof RuntimeInUseCloudflareSchema>;
+/** 一時共有の起動基盤 (cloudflared) がこの BFF で使えるか。GUI の入口は使えない行を出さない */
+export const RuntimeInUseTunnelSchema = z.object({
+  available: z.boolean(),
+  /** 利用できない理由の文言。使えるときは null */
+  unavailableReason: z.string().nullable(),
+});
+export type RuntimeInUseTunnel = z.infer<typeof RuntimeInUseTunnelSchema>;
 export const RuntimeInUseResponseSchema = z.object({
   title: RuntimeInUseTitleSchema,
   content: RuntimeInUseContentSchema,
   webSearch: RuntimeInUseWebSearchSchema,
   cloudflare: RuntimeInUseCloudflareSchema,
+  tunnel: RuntimeInUseTunnelSchema,
 });
 export type RuntimeInUseResponse = z.infer<typeof RuntimeInUseResponseSchema>;
 

@@ -201,6 +201,51 @@ export const RuntimeServeStartBodySchema = z.object({
   generation: z.string().nullable().optional(),
 });
 export type RuntimeServeStartBody = z.infer<typeof RuntimeServeStartBodySchema>;
+/** 一時共有の期限。延長は持たないので、この 3 つだけを受ける */
+export const ServeTunnelTtlMinutesSchema = z.union([z.literal(15), z.literal(60), z.literal(180)]);
+export type ServeTunnelTtlMinutes = z.infer<typeof ServeTunnelTtlMinutesSchema>;
+export const ServeTunnelTargetSchema = z.object({
+  /** 起動元の会話名。記録は一致しているが会話を引けないときだけ null */
+  title: z.string().nullable(),
+  cwd: z.string().nullable(),
+  command: z.string().nullable(),
+});
+export type ServeTunnelTarget = z.infer<typeof ServeTunnelTargetSchema>;
+export const ServeTunnelEndReasonSchema = z.enum(["stopped", "expired", "replaced", "failed", "exited"]);
+export type ServeTunnelEndReason = z.infer<typeof ServeTunnelEndReasonSchema>;
+export const ServeTunnelActiveSchema = z.object({
+  /** 共有 URL。開始のたびに変わり、停止・期限・置き換えで無効になる */
+  url: z.string(),
+  startedAt: z.number(),
+  expiresAt: z.number(),
+  target: ServeTunnelTargetSchema,
+});
+export type ServeTunnelActive = z.infer<typeof ServeTunnelActiveSchema>;
+export const ServeTunnelLastEndedSchema = z.object({
+  reason: ServeTunnelEndReasonSchema,
+  at: z.number(),
+  /** 起動の失敗のときだけ、分類に応じた固定文言を載せる */
+  message: z.string().optional(),
+});
+export type ServeTunnelLastEnded = z.infer<typeof ServeTunnelLastEndedSchema>;
+export const ServeTunnelStatusSchema = z.object({
+  available: z.boolean(),
+  /** 利用できない理由 (利用者の向けの文言)。使えるときは null */
+  unavailableReason: z.string().nullable(),
+  state: z.enum(["idle", "starting", "active"]),
+  provider: z.literal("cloudflare-quick"),
+  active: ServeTunnelActiveSchema.nullable(),
+  lastEnded: ServeTunnelLastEndedSchema.nullable(),
+});
+export type ServeTunnelStatus = z.infer<typeof ServeTunnelStatusSchema>;
+/** 確認した状態の `generation` と期限を必須にする。画面の確認を通さない開始を作らないため */
+export const ServeTunnelStartBodySchema = z
+  .object({
+    generation: z.string().min(1),
+    ttlMinutes: ServeTunnelTtlMinutesSchema,
+  })
+  .strict();
+export type ServeTunnelStartBody = z.infer<typeof ServeTunnelStartBodySchema>;
 /**
  * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
  * `owner` / `command` / `startedAt` を null にする。`owner` は会話ストアに起動元が残っていて、待受ソケットが

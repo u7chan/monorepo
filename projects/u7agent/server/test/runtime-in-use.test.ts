@@ -13,6 +13,7 @@ import type { CloudflareSettingsService } from "../src/cloudflare-settings";
 import type { ContentSettingsService } from "../src/content-settings";
 import { createRuntimeRoutes } from "../src/routes/runtime";
 import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import type { ServeTunnelStatusSource } from "../src/service-tunnel";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import type { TitleSummarySettingsService } from "../src/title-summary-settings";
 import type { WebSearchSettingsService } from "../src/web-search-settings";
@@ -125,6 +126,16 @@ function routeWithStubs(settings: {
         ...settings.cloudflare,
       }),
     } as unknown as CloudflareSettingsService,
+    serveTunnel: {
+      status: () => ({
+        available: true,
+        unavailableReason: null,
+        state: "idle",
+        provider: "cloudflare-quick",
+        active: null,
+        lastEnded: null,
+      }),
+    } as unknown as ServeTunnelStatusSource,
   });
   return new Hono().get("/api/runtime/in-use", routes.inUse);
 }
@@ -155,6 +166,7 @@ test("未設定の状態を写像し、音声の空文字は null へ正規化�
     webSearch: { enabled: false, provider: "exa", host: "exa.ai" },
     // availableReason は返さない（画面は available だけで分岐する）
     cloudflare: { configured: false, available: false, accountId: null },
+    tunnel: { available: true, unavailableReason: null },
   });
 });
 
@@ -201,6 +213,7 @@ test("設定値を写像し、カタログを応答へ含めない", async () =>
     // provider の一覧は返さず、既定 provider の host だけを返す
     webSearch: { enabled: true, provider: "tavily", host: "api.tavily.com" },
     cloudflare: { configured: true, available: true, accountId: ACCOUNT_ID },
+    tunnel: { available: true, unavailableReason: null },
   });
 });
 
