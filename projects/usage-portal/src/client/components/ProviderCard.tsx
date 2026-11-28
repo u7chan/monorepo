@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import type { UsageSource } from "../api";
+import { isOnDemandProvider } from "../../shared/on-demand";
 import { describeAge, describeResetCredits, formatClock, formatDateTime, formatFetchInterval } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
@@ -156,7 +157,7 @@ export function ProviderCard(props: {
           trend={activeTrend}
           generatedAt={props.generatedAt}
           emptyMessage={
-            source.provider === "claude"
+            isOnDemandProvider(source.provider)
               ? "履歴を収集中です（取得するたびに記録）。"
               : `履歴を収集中です（${intervalLabel}ごとに記録）。`
           }
@@ -172,7 +173,7 @@ export function ProviderCard(props: {
                 // 簡易表示では間隔まで出さず、値の古さだけを残す。
                 props.compact
                   ? null
-                  : source.provider === "claude"
+                  : isOnDemandProvider(source.provider)
                     ? "画面を開いたときと手動更新で取得"
                     : `${intervalLabel}間隔`,
                 ageLabel,
@@ -196,9 +197,9 @@ export function ProviderCard(props: {
   );
 }
 
-/** 自動再取得が無い Claude だけ、取り直す入口をメニューだと伝える。 */
+/** 自動再取得が無い provider だけ、取り直す入口をメニューだと伝える。 */
 function retryHint(source: UsageSource, intervalLabel: string): string {
-  if (source.provider === "claude") {
+  if (isOnDemandProvider(source.provider)) {
     return source.error?.code === "subscription_required"
       ? "契約の反映後、⋮ の「更新」で再開できます。"
       : "⋮ の「更新」で取り直せます。";

@@ -8,6 +8,7 @@ import type { ClaudeRefreshMode, ClaudeRefreshResult, ClaudeResetCreditsResult }
 import type { ClaudeStartService } from "./claude/start";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
+import type { GeminiLogoutResult, GeminiRefreshMode, GeminiRefreshResult } from "./gemini/service";
 import type { HealthReport } from "./health";
 import type { OpenCodeApi, OpenCodeApiError } from "./opencode/api";
 import type { ProbeApi, ProbeConfigError } from "./probe/api";
@@ -48,6 +49,11 @@ export type AppDeps = {
   };
   /** Claude の 5 時間窓の開始予約（docs/adr/claude-integration.md）。timer の起動と停止は server.ts が持つ。 */
   claudeStart: Pick<ClaudeStartService, "state" | "saveSettings" | "setEnabled" | "runNow">;
+  /** Gemini の導入（docs/adr/gemini-integration.md）。Claude と同じく、起動の可否は service が決める。 */
+  gemini: {
+    refresh: (mode: GeminiRefreshMode) => Promise<GeminiRefreshResult>;
+    logout: () => Promise<GeminiLogoutResult>;
+  };
   probe: ProbeApi;
   fetchIntervals: {
     read: () => Record<FetchIntervalProvider, number>;
@@ -402,7 +408,7 @@ export function createApp(deps: AppDeps) {
     requireSession,
     bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
     async (c) => {
-      const mode = readClaudeRefreshMode(await readJsonObject(c));
+      const mode = readRefreshMode(await readJsonObject(c));
 
       if (mode === null) {
         return c.json({ error: "invalid_request" as const }, 400);
@@ -459,6 +465,33 @@ export function createApp(deps: AppDeps) {
     const ok = await deps.claude.logout();
 
     return ok ? c.body(null, 204) : c.json({ error: "logout_failed" as const }, 503);
+  });
+
+  app.post(
+    "/api/gemini/refresh",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const mode = readRefreshMode(await readJsonObject(c));
+
+      if (mode === null) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      return c.json(await deps.gemini.refresh(mode));
+    },
+  );
+
+  // token の削除と確認は service が持つ。確認で接続が残っていれば 409、確かめられなければ 503。
+  app.post("/api/gemini/logout", requireSession, async (c) => {
+    switch (await deps.gemini.logout()) {
+      case "done":
+        return c.body(null, 204);
+      case "incomplete":
+        return c.json({ error: "logout_incomplete" as const }, 409);
+      default:
+        return c.json({ error: "logout_failed" as const }, 503);
+    }
   });
 
   return app;
@@ -546,7 +579,7 @@ async function readJsonObject(c: Context): Promise<Record<string, unknown> | nul
 }
 
 /** 取得を起こすのは画面と手動更新だけ。body を省いた要求は自動として扱う。 */
-function readClaudeRefreshMode(body: Record<string, unknown> | null): ClaudeRefreshMode | null {
+function readRefreshMode(body: Record<string, unknown> | null): "auto" | "manual" | null {
   if (body === null || body.mode === undefined || body.mode === "auto") {
     return "auto";
   }

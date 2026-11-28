@@ -23,6 +23,7 @@ import {
   stubClaudeApi,
   stubClaudeStart,
   stubCodexApi,
+  stubGeminiApi,
   usageSnapshot,
   stubProbeApi,
   stubFetchIntervals,
@@ -128,6 +129,7 @@ function harness(
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
     claudeStart: stubClaudeStart(),
+    gemini: stubGeminiApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode,
@@ -407,9 +409,10 @@ describe("POST /api/opencode/accounts", () => {
     expect(usage.sources.map((source) => `${source.provider}:${source.id}:${source.account?.name ?? "-"}`)).toEqual([
       "codex:codex:-",
       "claude:claude:-",
+      "gemini:gemini:-",
       `opencode-go:${account.id}:メイン`,
     ]);
-    expect(usage.sources[2]?.state).toBe("ok");
+    expect(usage.sources[3]?.state).toBe("ok");
     expect(JSON.stringify(usage)).not.toContain(KEY);
   });
 

@@ -1,6 +1,6 @@
 # usage-portal
 
-Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）の利用枠を 1 ページで確認するダッシュボード。
+Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）・Gemini（Google AI / Antigravity）の利用枠を 1 ページで確認するダッシュボード。
 自宅 LAN または VPN の内側から、スマホと PC で見る画面で、Docker コンテナとして動かす。
 利用枠の表示に加えて、設定したときだけ最小プロンプトを 1 回送る操作（Codex の 5 時間窓の開始と
 OpenCode Go の接続確認）を持つ。
@@ -22,6 +22,12 @@ OpenCode Go の接続確認）を持つ。
 - Claude のカードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」から手順と「接続を確認」を開く。
   カードの `⋮` の「ログアウトして非表示」は公式 CLI で資格情報を破棄してカードを消す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）
 - Claude のサインインは Web UI で中継しない。初回は端末から `docker exec -it <コンテナ名> claude auth login` を実行する
+- Gemini は公式 `agy`（Antigravity CLI）の `/usage` を子プロセスで実行し、Claude と同じく画面を開いたときと `⋮` の「更新」だけ取得する。
+  読むのは Antigravity の Gemini Models の週次・5 時間の枠だけで、Gemini アプリ・Gemini CLI の上限ではない。
+  接続の判定は `agy models`、サインインは端末から `docker exec -it -e HOME=/app/credentials/antigravity <コンテナ名> agy`
+  （[docs/adr/gemini-integration.md](docs/adr/gemini-integration.md)）
+- Gemini のカードも認証済みのときだけ出し、未接続のあいだは全体メニューの「Gemini」から手順と「接続を確認」を開く。
+  カードの `⋮` の「ログアウトして非表示」は token を読まずに削除し、`agy models` で未接続を確かめてからカードを消す
 - Claude のカードの `⋮` の「開始予約…」で、5 時間窓を開始する時刻を予約できる。「必ずリセットさせる時刻」と 1 日の回数から、
   5 時間おきの開始と、窓を始めない空き（既定は深夜）を決める。送る前に `/usage` で窓が動いていないことを確かめ、
   3 回続けて失敗したら自動でオフにする。「今すぐ開始」で 1 回だけ送ることもできる（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）
@@ -29,7 +35,7 @@ OpenCode Go の接続確認）を持つ。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
 - 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[docs/adr/opencode-integration.md](docs/adr/opencode-integration.md)）
-- 右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを開ける
+- 右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを開ける（Gemini は取り込まない）
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
 
@@ -82,13 +88,15 @@ Codex のカードは利用枠の下に「リセット枠 2回」と、枠ごと
 期限は公式のリセット詳細から読み、取得できなかったときは回数だけを出す（期限を推測しない）。
 期限なしと確認できた枠は「期限なし」、詳細の一覧に無い枠は「期限不明」として区別する。
 クレジット残高は数値（「クレジット残高 0」）で出し、数値を読めないときだけ有無を出す。
-Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
+Claude と Gemini のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
 `⋮` の「リセット枠を取得」は通常の更新とは別で、押したときだけ回数と枠ごとの期限（「あと 13 日 期限 01/15 09:00」）を読む。
 一度も押していなければ何も出さず、0 件と取得失敗は別の文言にする。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
-カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
+Gemini も同じく、未接続のあいだはカードを出さず、全体メニューの「Gemini」に手順と「接続を確認」を置く（[docs/adr/gemini-integration.md](docs/adr/gemini-integration.md)）。
+Gemini の `usedPercent` は `remaining_fraction` から求め、`reset_time` を読めない・1970-01-01 のときも窓は残して「リセット時刻は不明」と出す。
+カードは Codex → Claude → Gemini → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
-月次の残りが多い順に並ぶ。Codex・Claude と、月次を読めないカードは元の位置に残る。
+月次の残りが多い順に並ぶ。Codex・Claude・Gemini と、月次を読めないカードは元の位置に残る。
 ゲージと並び順の細部は、コードとテストを正とする。
 
 ### 公式ステータス
@@ -150,6 +158,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `PUT`    | `/api/claude/start`                | 必要 | 予約の設定を保存（オン / オフは変えない）。不正な入力は 400 `invalid_request` |
 | `PUT`    | `/api/claude/start/enabled`        | 必要 | `{ "enabled": boolean }`。オンに戻すと連続失敗の数と停止の理由を消す。設定が無ければ 409 `not_configured` |
 | `POST`   | `/api/claude/start/run`            | 必要 | 今すぐ開始。200 `{ outcome: "ok" \| "skipped" \| "failed", code?, resetsAt? }`。実行中は 409 `in_progress` |
+| `POST`   | `/api/gemini/refresh`              | 必要 | Claude と同じ形。`{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回の試行から 15 分以内なら CLI を起動せず、手動は 60 秒空ける。ログアウト中は `skipped: logout` |
+| `POST`   | `/api/gemini/logout`               | 必要 | token を読まずに削除し、進行中の取得を待ってから `agy models` で未接続を確かめ、Gemini の snapshot と error を消す（204）。推移の sample は残す。削除後も接続が残れば 409 `logout_incomplete`（カードは残る）、削除・確認・DB の失敗は 503 `logout_failed`。応答は最大 45 秒かかる |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
@@ -160,13 +170,13 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 `model_unavailable`、それ以外と stream の異常終了は `unavailable`。応答本文と上流のエラー文は返さない。
 Codex の 5 時間窓が API に返らないアカウントがあるため、「開始済み」の判定は持たない（再送しても 5 時間は延びない）。
 
-`sources[]` は source ごとに独立して失敗する。`id` は `codex`・`claude`・アカウントの uuid、`provider` は `codex` /
-`opencode-go` / `claude`、`account` は OpenCode Go の `{ id, name, icon }`（Codex と Claude は `null`）で、応答の並びは
-Codex → Claude → 登録順。
+`sources[]` は source ごとに独立して失敗する。`id` は `codex`・`claude`・`gemini`・アカウントの uuid、`provider` は `codex` /
+`opencode-go` / `claude` / `gemini`、`account` は OpenCode Go の `{ id, name, icon }`（Codex・Claude・Gemini は `null`）で、応答の並びは
+Codex → Claude → Gemini → 登録順。
 画面はこの並びを使い切ったカードの移動と月次の残り順で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
-`config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、Codex は画面では「未接続」と出す。
-Claude は `not_connected` のあいだカードを出さず、全体メニューの「Claude」から手順を開く。Claude の `nextFetchAt` は常に `null`（周期取得が無い）。
+`config` の固定値で、上流の本文は含まない。未サインインの Codex・Claude・Gemini は `not_connected` になり、Codex は画面では「未接続」と出す。
+Claude と Gemini は `not_connected` のあいだカードを出さず、全体メニューから手順を開く。Claude と Gemini の `nextFetchAt` は常に `null`（周期取得が無い）で、`fetchIntervalMs` は 15 分固定。
 
 ## Codex のサインイン
 
@@ -214,6 +224,34 @@ image の `CLAUDE_CONFIG_DIR` は `CREDENTIAL_DIR/claude` にしてあるので�
 CLI を起動せず保存済みの値を使い、手動更新は前回の試行から 60 秒空ける。失敗しても自動では再試行しない。
 カードが出ていないあいだは、全体メニューの「Claude」の「接続を確認」が手動更新と同じ経路になる。
 CLI の出力本文は DB・ログ・応答に残さず、正規化した利用枠と sample だけを保存する。
+
+## Gemini のサインイン
+
+Gemini も Web UI でサインインを中継しない。公式 `agy`（Antigravity CLI）を image に版固定で入れ、その CLI 自身に
+サインインさせる。このアプリはトークンを読まず、保存も送信もしない（ログアウトの削除だけが例外。
+[docs/adr/gemini-integration.md](docs/adr/gemini-integration.md)）。
+
+`agy` は設定と token を `$HOME/.gemini/antigravity-cli` に置き、設定ディレクトリの環境変数を持たない。
+アプリは `HOME` を `CREDENTIAL_DIR/antigravity` に差し替えて起動するので、サインインも同じ `HOME` で行う。
+
+1. 稼働中のコンテナへ入って、Google AI のアカウントでサインインする
+
+   ```bash
+   docker exec -it -e HOME=/app/credentials/antigravity <コンテナ名> agy
+   ```
+
+   `CREDENTIAL_DIR` を既定から変えているときは、`HOME` も `<CREDENTIAL_DIR>/antigravity` に合わせる。
+2. 画面を開くか、全体メニューの「Gemini」で「接続を確認」を押す
+3. 未接続のあいだはカードが出ない。サインイン後にカードが戻る
+4. カードを隠すときは `⋮` →「ログアウトして非表示」→「ログアウトする」。進行中の取得があれば終わるのを待つため、最大 45 秒かかる
+
+`bun run dev` で動かすときは `HOME="$PWD/credentials/antigravity" agy` を使う。OS の keyring を使うホストでは、
+`HOME` で分離できず、ログアウトしても接続が残る（409）ことがある。
+
+取得は Claude と同じく画面を開いたときと手動更新だけで、前回の試行から 15 分以内なら CLI を起動せず、手動更新は
+60 秒空ける。CLI の出力本文・stderr・OAuth の URL・メールは DB・ログ・応答に残さない。
+image の `AGY_CLI_DISABLE_AUTO_UPDATE=1` は CLI の自動更新を止めるための設定で、アプリが読む環境変数ではない
+（`CLAUDE_CONFIG_DIR` と同じく、子プロセスへ明示的に渡す）。
 
 ## 最小プロンプトの送信
 
@@ -263,7 +301,7 @@ rm credentials/opencode-key.json
 | `HOST`             | `0.0.0.0`          | 待ち受けアドレス                                                                                                                           |
 | `PORT`             | `3000`             | 待ち受けポート                                                                                                                             |
 | `DATA_DIR`         | `/app/data`        | SQLite と認証状態（`pin-hash` / `session-key`）、送信の設定（`settings.json`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
-| `CREDENTIAL_DIR`   | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする        |
+| `CREDENTIAL_DIR`   | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json`、Claude の `claude/`、Gemini（agy）の `HOME` の `antigravity/` の置き場。起動時に 0700、配下のファイルを 0600 にする        |
 | `POLL_INTERVAL_MS` | `600000`           | 画面から設定していない provider の取得間隔。1 分未満・非整数は起動しない（画面から選べるのは 5 分以上）                                      |
 | `COMMIT_HASH`      | なし               | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる                                                                 |
 | `TRUST_PROXY`      | `0`                | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う                     |
@@ -271,6 +309,8 @@ rm credentials/opencode-key.json
 
 `PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。`CLAUDE_CONFIG_DIR` も Dockerfile で
 `CREDENTIAL_DIR/claude` にしている（Claude CLI が資格情報を書く場所で、アプリは子プロセスへ明示的に渡す）。
+Gemini の `agy` の `HOME` は `CREDENTIAL_DIR/antigravity` に固定で、アプリが子プロセスへ明示的に渡す。
+image の `AGY_CLI_DISABLE_AUTO_UPDATE=1` は `agy` の自動更新を止める。
 PIN とセッション鍵は環境変数では渡さない。
 
 ## Docker
@@ -281,6 +321,12 @@ PIN とセッション鍵は環境変数では渡さない。
 `final` には公式 Claude Code CLI を、`downloads.claude.ai` の版固定バイナリを公式 manifest の checksum で検証して入れる
 （ビルド時に約 370 MB を取得する）。バイナリは root 所有の 0755 で置き、実行ユーザーからは書き換えられない。
 実行ユーザーはこのファイルを置き換えられないため、自動更新が試されても版は Dockerfile の `CLAUDE_CODE_VERSION` のまま固定される。
+
+同じく `final` には Antigravity CLI（`agy`）を、公式 installer が使う manifest の `url` / `sha512` を写して版固定で入れる
+（`AGY_CLI_VERSION`。tar.gz で約 99 MiB、展開後 約 281 MB）。アーキテクチャ（`uname -m`）ごとに URL と SHA-512 を持ち、
+ビルド時に SHA-512 と `agy --version` を検証する。root 所有の 0755 で `/usr/local/bin/agy` に置き、`AGY_CLI_DISABLE_AUTO_UPDATE=1` を
+image の `ENV` にも置く。manifest は最新版だけを指すため、版を上げるときは両 arch の URL・SHA-512・`AGY_CLI_VERSION` を同時に直し、
+`test/providers-gemini.test.ts` の fixture を `agy -p "/usage" --output-format json` の出力と突き合わせる。
 
 ```bash
 docker build --target test -t usage-portal-test ./projects/usage-portal
@@ -296,7 +342,7 @@ docker run --rm -p 3000:3000 \
 マウントするときは所有者を合わせる（`install -d -m 700 -o 1000 -g 1000` 相当）。
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
-- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**。Claude の資格情報はカードの「ログアウトして非表示」で CLI が削除する
+- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）、Gemini の `antigravity/`（`agy` の `HOME`。設定・token・会話の cache）が入る。**バックアップやログに出さない**。Claude の資格情報はカードの「ログアウトして非表示」で CLI が削除し、Gemini の token はアプリが読まずに削除する
 
 ### Claude Code CLI の版更新
 
@@ -346,10 +392,11 @@ src/server/health.ts          /api/health の応答
 src/server/version.ts         version と User-Agent の組み立て
 src/server/providers/         Codex / OpenCode Go / Claude の adapter と正規化モデル
 src/server/claude/            Claude CLI の子プロセス起動と、取得の契機（single-flight、15 分 / 60 秒）
+src/server/gemini/            agy の子プロセス起動と、取得の契機・ログアウト（single-flight、15 分 / 60 秒、取得と直列）
 src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
 src/server/opencode/          OpenCode Go のアカウントの保存と /api/opencode/*
 src/server/probe/             送信の設定（settings.json）、モデル catalog、最小プロンプトの送信
-src/shared/                    server と client で共有する入力規則（アカウント名・アイコン・キー）
+src/shared/                    server と client で共有する入力規則（アカウント名・アイコン・キー）と、周期取得の無い provider の判定
 src/client/main.tsx           Preact の描画入口
 src/client/App.tsx            セッション・利用枠・アカウントの取得と画面の切り替え
 src/client/api.ts             API の呼び出しと応答の解釈
@@ -359,6 +406,7 @@ src/client/lib/windows.ts     推移の初期表示に選ぶ窓
 src/client/lib/view-mode.ts  簡易 / 標準の保存値（localStorage）
 src/client/lib/status.ts      状態ラベルとしきい値
 src/client/lib/claude.ts      Claude のカードを出すかの判定と、カード・全体メニューで共通の文言
+src/client/lib/gemini.ts      Gemini のカードを出すかの判定と、カード・全体メニューで共通の文言
 src/client/lib/account-color.ts  アカウントのアイコン背景色（id のハッシュから選ぶ）
 src/client/components/        ログイン、source カード、meter、trend、アカウントの編集、送信の設定、表示の切り替え
 src/client/styles.css         CSS トークンとレイアウト
@@ -385,14 +433,18 @@ bun run check
 - 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除と、
   明示的に押したときの最小プロンプト 1 回の送信だけを行う（送るのはサーバ側の固定 1 文で、利用者の入力は混ぜない）
 - Claude は公式 CLI を未改変で使い、トークンと `.credentials.json` を直接読まない。サインインもログアウトも Web UI で中継せず、CLI 自身に行わせる
+- Gemini も公式 `agy` を未改変で使い、token を読まない・保存しない・送信しない。サインインは CLI 自身に行わせ、ログアウトだけは `agy` に非対話の手段が無いため、token ファイルを読まずに削除して `agy models` で確かめる
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
 - Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
 - Claude の CLI 出力本文とメール・組織の情報は、DB・ログ・応答に残さない（読むのは `loggedIn` / `authMethod` /
   `subscriptionType` / `loginExpiresAt` だけ）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` に絞り、
   cwd は空の一時ディレクトリにする
+- Gemini の CLI 出力本文・stderr・OAuth の URL・メール・bucket の `name` / `description` は、DB・ログ・応答に残さない
+  （読むのは `gemini-*` の bucket の `id` / `window` / `remaining_fraction` / `reset_time` だけ）。子プロセスへ渡す環境変数は
+  `PATH` / `HOME` / `TZ` / `AGY_CLI_DISABLE_AUTO_UPDATE` に絞り、cwd は空の一時ディレクトリにする
 - 送信の成否は status・`stopReason`・latency・固定のエラーコードだけを扱い、プロンプトも応答も保存しない
-- `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600、`claude/` は 0700。ホストの Pi 資格情報や `~/.claude` とは共有しない
+- `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600、`claude/` と `antigravity/` は 0700。ホストの Pi 資格情報や `~/.claude`・`~/.gemini` とは共有しない
 - `opencode-accounts.json` はアカウント数だけキーを平文で持つ。旧 `opencode-key.json` を残すとキーが二重に残るため、登録後に削除する
 - PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
 - セッション cookie は `HttpOnly; SameSite=Lax`。`Secure` は `COOKIE_SECURE` / `TRUST_PROXY` に従う（既定は HTTPS の要求のときだけ付与）
@@ -409,4 +461,5 @@ bun run check
 - [docs/adr/opencode-integration.md](docs/adr/opencode-integration.md) — OpenCode Go との連携（アカウント・契約エラー・再取得）
 - [docs/adr/codex-integration.md](docs/adr/codex-integration.md) — Codex との連携（資格情報・サインイン・送信）
 - [docs/adr/claude-integration.md](docs/adr/claude-integration.md) — Claude との連携（公式 CLI・取得の契機・開始予約）
+- [docs/adr/gemini-integration.md](docs/adr/gemini-integration.md) — Gemini との連携（公式 CLI・取得の契機・ログアウトの例外）
 - [docs/adr/service-status-links.md](docs/adr/service-status-links.md) — 稼働状況は取り込まず公式ページへリンクする

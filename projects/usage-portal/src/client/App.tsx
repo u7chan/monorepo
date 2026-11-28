@@ -8,6 +8,9 @@ import {
   type ClaudeRefreshOutcome,
   type CodexAuthState,
   type CodexProbeConfig,
+  type GeminiLogoutOutcome,
+  type GeminiRefreshMode,
+  type GeminiRefreshOutcome,
   type OpenCodeAccount,
   type OpenCodeAccountInput,
   type OpenCodeAccountPatch,
@@ -32,7 +35,9 @@ import {
   logout,
   logoutClaude,
   logoutCodex,
+  logoutGemini,
   refreshClaudeUsage,
+  refreshGeminiUsage,
   refreshOpenCodeAccount,
   respondCodexLogin,
   saveCodexProbe,
@@ -44,6 +49,8 @@ import { ClaudeCard } from "./components/ClaudeCard";
 import { ClaudeSettingsPanel } from "./components/ClaudeSettingsPanel";
 import { CodexCard } from "./components/CodexCard";
 import { FetchIntervalForm } from "./components/FetchIntervalForm";
+import { GeminiCard } from "./components/GeminiCard";
+import { GeminiSettingsPanel } from "./components/GeminiSettingsPanel";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
@@ -54,6 +61,7 @@ import { ProviderGlyph } from "./components/ProviderIcon";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { showsClaudeCard } from "./lib/claude";
+import { showsGeminiCard } from "./lib/gemini";
 import { orderSources } from "./lib/order";
 import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
@@ -145,7 +153,7 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
           <img class="up-brand-logo" src={logo} width={32} height={32} alt="" />
           <span>Usage</span>
         </span>
-        <span class="up-caption">Codex / Claude / OpenCode Go</span>
+        <span class="up-caption">Codex / Claude / Gemini / OpenCode Go</span>
         {props.tools || props.menu ? (
           <div class="up-header-actions">
             {props.tools}
@@ -180,6 +188,7 @@ function Dashboard(props: {
   const [fetchIntervalsFailed, setFetchIntervalsFailed] = useState(false);
   // Claude のカードが無いときだけ、全体メニューから同じ操作を開く。
   const [configuringClaude, setConfiguringClaude] = useState(false);
+  const [configuringGemini, setConfiguringGemini] = useState(false);
   // カードが消える操作の結果は、カードの中に出せない。
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
@@ -443,20 +452,54 @@ function Dashboard(props: {
     [loadUsage, onUnauthorized],
   );
 
+  // Claude と同じ契機・同じ応答。取得を試したときだけ取り直す。
+  const refreshGemini = useCallback(
+    async (mode: GeminiRefreshMode): Promise<GeminiRefreshOutcome | null> => {
+      setPageNotice(null);
+
+      let outcome: Awaited<ReturnType<typeof refreshGeminiUsage>>;
+
+      try {
+        outcome = await refreshGeminiUsage(mode);
+      } catch {
+        return null;
+      }
+
+      if (outcome === null) {
+        return null;
+      }
+
+      if ("unauthorized" in outcome) {
+        onUnauthorized();
+
+        return null;
+      }
+
+      if (outcome.state !== "skipped") {
+        await loadUsage();
+      }
+
+      return outcome;
+    },
+    [loadUsage, onUnauthorized],
+  );
+
   // 画面を開いたときと、タブが見える状態に戻ったときだけ取りに行く。開きっぱなしでは周期取得しない。
   useEffect(() => {
     void refreshClaude("auto");
+    void refreshGemini("auto");
 
     const onVisibilityChange = (): void => {
       if (document.visibilityState === "visible") {
         void refreshClaude("auto");
+        void refreshGemini("auto");
       }
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [refreshClaude]);
+  }, [refreshClaude, refreshGemini]);
 
   // 資格情報はサーバーの CLI が破棄する。カードは /api/usage の読み直しで消える。
   const signOutClaude = useCallback(async (): Promise<boolean> => {
@@ -476,6 +519,24 @@ function Dashboard(props: {
     await loadUsage();
 
     return true;
+  }, [loadUsage]);
+
+  // token の削除は進行中の取得を待つため時間がかかる。完了したときだけカードが消える。
+  const signOutGemini = useCallback(async (): Promise<GeminiLogoutOutcome> => {
+    let outcome: GeminiLogoutOutcome;
+
+    try {
+      outcome = await logoutGemini();
+    } catch {
+      outcome = "failed";
+    }
+
+    if (outcome === "done") {
+      setPageNotice("Gemini からログアウトしました。");
+      await loadUsage();
+    }
+
+    return outcome;
   }, [loadUsage]);
 
   const createAccount = useCallback(
@@ -661,9 +722,13 @@ function Dashboard(props: {
   const expiry = expiryNotice(props.expiresAt, clock);
   const claudeSource = usage?.sources.find((source) => source.provider === "claude") ?? null;
   const claudeCardHidden = claudeSource !== null && !showsClaudeCard(claudeSource);
+  const geminiSource = usage?.sources.find((source) => source.provider === "gemini") ?? null;
+  const geminiCardHidden = geminiSource !== null && !showsGeminiCard(geminiSource);
   // カードが無いあいだは、同じ操作の入口を全体メニューに出す。
   const sources = orderSources(usage?.sources ?? placeholderSources(accounts.accounts)).filter(
-    (source) => source.provider !== "claude" || showsClaudeCard(source),
+    (source) =>
+      (source.provider !== "claude" || showsClaudeCard(source)) &&
+      (source.provider !== "gemini" || showsGeminiCard(source)),
   );
   const codexActions = {
     onStart: startCodex,
@@ -705,6 +770,17 @@ function Dashboard(props: {
           },
         ]
       : []),
+    ...(geminiCardHidden
+      ? [
+          {
+            label: "Gemini",
+            onSelect: () => {
+              setPageNotice(null);
+              setConfiguringGemini(true);
+            },
+          },
+        ]
+      : []),
     {
       label: "ステータス",
       items: [
@@ -734,6 +810,12 @@ function Dashboard(props: {
       setConfiguringClaude(false);
     }
   }, [claudeSource, configuringClaude]);
+
+  useEffect(() => {
+    if (configuringGemini && geminiSource !== null && showsGeminiCard(geminiSource)) {
+      setConfiguringGemini(false);
+    }
+  }, [geminiSource, configuringGemini]);
 
   const compact = viewMode === "compact";
 
@@ -780,6 +862,20 @@ function Dashboard(props: {
                 onLogout={signOutClaude}
                 onUsageChanged={loadUsage}
                 onUnauthorized={onUnauthorized}
+              />
+            );
+          }
+
+          if (source.provider === "gemini") {
+            return (
+              <GeminiCard
+                key={source.id}
+                source={source}
+                now={clock}
+                generatedAt={usage?.generatedAt ?? null}
+                compact={compact}
+                onRefresh={() => refreshGemini("manual")}
+                onLogout={signOutGemini}
               />
             );
           }
@@ -862,6 +958,13 @@ function Dashboard(props: {
           )}
         </Modal>
       ) : null}
+      {configuringGemini && geminiSource !== null ? (
+        <Modal title="Gemini" onClose={() => setConfiguringGemini(false)}>
+          {(close) => (
+            <GeminiSettingsPanel source={geminiSource} onRefresh={() => refreshGemini("manual")} onClose={close} />
+          )}
+        </Modal>
+      ) : null}
       {configuring ? (
         <Modal title="Codex の開始設定" onClose={() => setConfiguring(false)}>
           {(close) => (
@@ -898,6 +1001,7 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
   return [
     { id: "codex", provider: "codex", name: "Codex", plan: null, account: null, ...placeholder },
     { id: "claude", provider: "claude", name: "Claude", plan: null, account: null, ...placeholder },
+    { id: "gemini", provider: "gemini", name: "Gemini", plan: null, account: null, ...placeholder },
     ...accounts.map((account) => ({
       id: account.id,
       provider: "opencode-go" as const,
