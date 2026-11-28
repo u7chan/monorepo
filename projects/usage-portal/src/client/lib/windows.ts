@@ -1,4 +1,4 @@
-import type { UsageWindow } from "../api";
+import type { ProviderId, UsageWindow } from "../api";
 
 /**
  * 推移の初期表示。Codex と OpenCode Go で窓の id が違うため、正規化済みのラベルで選ぶ。
@@ -67,4 +67,49 @@ export function findBlockedWindows(windows: readonly UsageWindow[]): Map<string,
 /** 期間の長さが分からないラベルは比較に参加させない。順序を推測して誤った窓を止めるより出さない。 */
 function depthOf(window: UsageWindow): number | null {
   return WINDOW_DEPTHS.find(([prefix]) => window.label.startsWith(prefix))?.[1] ?? null;
+}
+
+/**
+ * カードに並べる枠。provider ごとに順を決め、API が返さない枠は
+ * 行の位置を揃えるための空きスロットにする（値は持たせない）。
+ */
+export type WindowSlot = { window: UsageWindow } | { label: string; absentNote: string };
+
+const WINDOW_SLOTS: Partial<Record<ProviderId, readonly { label: string; absentNote: string }[]>> = {
+  // Codex の 5 時間枠はプランによって返らない。週次だけのカードでも行を揃えたいので、
+  // 返らない種類は場所だけ確保する。値の無い枠に「0%」は出さない。
+  codex: [
+    { label: "ローリング", absentNote: "5 時間枠は提供されていません" },
+    { label: "週次", absentNote: "週次の枠は提供されていません" },
+  ],
+};
+
+export function arrangeWindowSlots(provider: ProviderId, windows: readonly UsageWindow[]): WindowSlot[] {
+  const definitions = WINDOW_SLOTS[provider];
+
+  if (!definitions || windows.length === 0) {
+    return windows.map((window) => ({ window }));
+  }
+
+  const placed = new Set<UsageWindow>();
+  const slots: WindowSlot[] = definitions.map((definition) => {
+    const window = windows.find((candidate) => !placed.has(candidate) && candidate.label.startsWith(definition.label));
+
+    if (!window) {
+      return definition;
+    }
+
+    placed.add(window);
+
+    return { window };
+  });
+
+  // 定義に無い窓は落とさない。上流が窓を増やしても、そのまま末尾に出す。
+  for (const window of windows) {
+    if (!placed.has(window)) {
+      slots.push({ window });
+    }
+  }
+
+  return slots;
 }

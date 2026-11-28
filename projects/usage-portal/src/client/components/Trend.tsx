@@ -1,6 +1,6 @@
 import type { Trend, UsageWindow } from "../api";
 import { buildTimeTicks, buildValueAxis } from "../lib/chart";
-import { describeCoverage, formatSpan, remainingPercent } from "../lib/format";
+import { describeCoverage, formatDateTime, formatSpan, remainingPercent } from "../lib/format";
 
 /** 線が枠に貼り付かないよう、上下に少し余白を残す（viewBox の %）。 */
 const PLOT_PADDING = 4;
@@ -73,10 +73,6 @@ function Chart(props: { trend: Trend; generatedAt: number | null; emptyMessage: 
   const resets = props.trend.resets;
   const notes: string[] = [];
 
-  if (resets.length > 0) {
-    notes.push("点線はリセット");
-  }
-
   if (endAt - first.at < props.trend.spanMs * 0.8) {
     notes.push(`履歴はまだ ${describeCoverage(endAt - first.at)}です`);
   }
@@ -101,9 +97,20 @@ function Chart(props: { trend: Trend; generatedAt: number | null; emptyMessage: 
               <path class="up-trend-area" d={area} />
               <path class="up-trend-line" d={line} />
             </svg>
-            {resets.map((at) => (
-              <div key={at} class="up-trend-reset" style={{ left: `${xOf(at)}%` }} />
-            ))}
+            {resets.map((at) => {
+              const left = xOf(at);
+
+              // 点線の意味は常設の注記ではなく、触れたときだけ出す。端の線は吹き出しを内側へ寄せる。
+              return (
+                <div
+                  key={at}
+                  class="up-trend-reset"
+                  style={{ left: `${left}%` }}
+                  data-label={`リセット ${formatDateTime(at)}`}
+                  data-edge={left < 20 ? "start" : left > 80 ? "end" : undefined}
+                />
+              );
+            })}
             <div class="up-trend-dot" style={{ left: `${lastX}%`, top: `${yOf(last.value)}%` }} />
           </div>
           <div class="up-trend-x" aria-hidden="true">

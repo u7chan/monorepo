@@ -124,12 +124,33 @@ export function describeReset(
  * カードに出すリセット枠。詳細で確認できた枠だけを並べ、
  * 期限なしと期限不明を混同しない（確認できていない枠を「期限なし」と書かない）。
  */
+export type ResetCreditRow = {
+  remaining: string;
+  /** 「期限」は付けない。セクションの見出しが何の日時かを説明している。 */
+  date: string;
+  expired: boolean;
+};
+
 export type ResetCreditsView = {
-  label: string;
-  rows: { remaining: string; at: string }[];
+  /** 使える枠の数。0 のときは null（「0 回」と「なし」を重ねない）。 */
+  count: number | null;
+  rows: ResetCreditRow[];
   /** 期限の無い枠と、確認できなかった枠の注記。 */
   notes: string[];
+  /** 手動取得の時刻。周期取得の provider では null。 */
+  captured: string | null;
 };
+
+function resetCreditRows(expiries: readonly number[], now: number): ResetCreditRow[] {
+  return expiries
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => a - b)
+    .map((at) => ({
+      remaining: at <= now ? "期限切れ" : `あと ${describeRemaining(at - now)}`,
+      date: formatDateTime(at),
+      expired: at <= now,
+    }));
+}
 
 export function describeResetCredits(
   credits: { available: number; details: { expiresAt: number | null }[] | null },
@@ -139,21 +160,16 @@ export function describeResetCredits(
     return null;
   }
 
-  const label = `リセット枠 ${credits.available}回`;
+  const count = credits.available;
 
   if (credits.details === null) {
-    return { label, rows: [], notes: [] };
+    return { count, rows: [], notes: [], captured: null };
   }
 
-  const rows = credits.details
+  const expiries = credits.details
     .filter((detail): detail is { expiresAt: number } => detail.expiresAt !== null && Number.isFinite(detail.expiresAt))
-    .map((detail) => detail.expiresAt)
-    .sort((a, b) => a - b)
-    .map((at) => ({
-      remaining: at <= now ? "期限切れ" : `あと ${describeRemaining(at - now)}`,
-      at: `期限 ${formatDateTime(at)}`,
-    }));
-
+    .map((detail) => detail.expiresAt);
+  const rows = resetCreditRows(expiries, now);
   const noExpiry = credits.details.filter((detail) => detail.expiresAt === null).length;
   const unknown = Math.max(0, credits.available - credits.details.length);
   const notes: string[] = [];
@@ -166,21 +182,13 @@ export function describeResetCredits(
     notes.push(rows.length + noExpiry > 0 ? `他 ${unknown}件は期限不明` : `期限不明 ${unknown}件`);
   }
 
-  return { label, rows, notes };
+  return { count, rows, notes, captured: null };
 }
 
 /**
  * Claude のリセット枠（手動取得）。取得済みなら回数と全期限を出し、
  * 未取得は行を出さない。失敗と「0 件」は別の文言にする。
  */
-export type ClaudeResetCreditsView = {
-  label: string | null;
-  rows: { remaining: string; at: string }[];
-  notes: string[];
-  /** 取得（または最後の失敗）の時刻。 */
-  captured: string | null;
-};
-
 export function describeClaudeResetCredits(
   value: {
     credits: { available: number; expiries: number[] } | null;
@@ -188,7 +196,7 @@ export function describeClaudeResetCredits(
     error: { code: string; at: number } | null;
   } | null,
   now: number,
-): ClaudeResetCreditsView | null {
+): ResetCreditsView | null {
   if (value === null) {
     return null;
   }
@@ -200,20 +208,14 @@ export function describeClaudeResetCredits(
     }
 
     return {
-      label: null,
+      count: null,
       rows: [],
       notes: ["リセット枠を取得できませんでした"],
       captured: `試行 ${formatDateTime(value.error.at)}`,
     };
   }
 
-  const rows = value.credits.expiries
-    .filter((at) => Number.isFinite(at))
-    .sort((a, b) => a - b)
-    .map((at) => ({
-      remaining: at <= now ? "期限切れ" : `あと ${describeRemaining(at - now)}`,
-      at: `期限 ${formatDateTime(at)}`,
-    }));
+  const rows = resetCreditRows(value.credits.expiries, now);
   const notes: string[] = [];
 
   if (rows.length === 0) {
@@ -226,7 +228,7 @@ export function describeClaudeResetCredits(
 
   return {
     // 0 回のときは「0回」と「なし」を重ねない。
-    label: value.credits.available > 0 ? `リセット枠 ${value.credits.available}回` : null,
+    count: value.credits.available > 0 ? value.credits.available : null,
     rows,
     notes,
     captured: value.capturedAt === null ? null : `取得 ${formatDateTime(value.capturedAt)}`,

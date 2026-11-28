@@ -541,6 +541,18 @@ h2 {
   background: var(--up-danger);
 }
 
+/* 値の無い枠。塗りを外して破線の枠だけにし、0% ではなく「枠が無い」と読ませる。 */
+.up-meter[data-state="absent"] .up-meter-label,
+.up-meter[data-state="absent"] .up-meter-value {
+  color: var(--up-muted);
+  font-weight: 500;
+}
+
+.up-meter-track[data-state="absent"] {
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--up-line) 55%, var(--up-muted));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .up-meter-fill {
     transition: none;
@@ -560,34 +572,95 @@ h2 {
   gap: var(--up-space-1) var(--up-space-2);
 }
 
-/* リセット枠は回数と、枠ごとの期限を縦に並べる。 */
-.up-reset-credits {
+/* リセット枠は使う枠の残数と期限を持つ。使用率の推移とは別の情報なので、メーターと形を変える。 */
+.up-reset {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--up-space-2);
+  padding-top: var(--up-space-3);
+  border-top: 1px solid var(--up-line);
 }
 
-.up-reset-credits-list {
+.up-reset-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--up-space-2);
+}
+
+.up-reset-title {
+  color: var(--up-muted);
+  font-size: var(--up-font-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.up-reset-count {
+  color: var(--up-text);
+  font-size: var(--up-font-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 残り時間は左、期限は右。メーターの説明行（バッジ＋日時）とは形を変え、別の情報だと分かるようにする。 */
+.up-reset-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  padding-left: var(--up-space-5);
+  padding: 0;
+  list-style: none;
 }
 
-.up-reset-credits-list > li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--up-space-1) var(--up-space-2);
+.up-reset-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--up-space-3);
+  font-size: var(--up-font-caption);
 }
 
+.up-reset-remaining {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.up-reset-row[data-expired="true"] .up-reset-remaining {
+  color: var(--up-muted);
+  font-weight: 500;
+}
+
+.up-reset-date {
+  color: var(--up-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.up-reset-meta {
+  margin: 0;
+  color: var(--up-muted);
+  font-size: var(--up-font-caption);
+}
+
+/* 補足は箇条書きの点だけ残し、メーターやリセット枠の列に揃えない。 */
 .up-notes {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  padding-left: var(--up-space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.up-notes > li {
+  color: var(--up-muted);
+  font-size: var(--up-font-caption);
+}
+
+.up-notes > li::before {
+  content: "·";
+  margin-right: var(--up-space-1);
 }
 
 .up-provider-foot {
@@ -758,12 +831,65 @@ h2 {
   box-shadow: 0 0 0 2px var(--up-surface);
 }
 
+/* 線幅 1px のままではホバーできない。当たり判定だけ太くし、線は ::before で描く。 */
 .up-trend-reset {
   position: absolute;
   top: 0;
   bottom: 0;
+  width: 9px;
+  margin-left: -4px;
+}
+
+.up-trend-reset::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
   border-left: 1px dashed var(--up-muted);
   opacity: 0.7;
+}
+
+/* 点線の意味は常設のラベルではなく、触れたときだけ出す。タッチ端末では出さない。 */
+@media (hover: hover) {
+  .up-trend-reset::after {
+    content: attr(data-label);
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    z-index: 3;
+    transform: translateX(-50%);
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: var(--up-text);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 24%);
+    color: var(--up-bg);
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+
+  .up-trend-reset:hover::after {
+    opacity: 1;
+  }
+
+  /* 端の線は、吹き出しがカードの外へ出ないよう寄せる。 */
+  .up-trend-reset[data-edge="start"]::after {
+    transform: none;
+  }
+
+  .up-trend-reset[data-edge="end"]::after {
+    transform: translateX(-100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .up-trend-reset::after {
+      transition: none;
+    }
+  }
 }
 
 .up-trend-x {
