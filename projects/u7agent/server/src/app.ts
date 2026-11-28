@@ -99,6 +99,7 @@ import {
   RuntimeDebugServeStopBodySchema,
   RuntimeServeStartBodySchema,
   RuntimeServeStopBodySchema,
+  ServeTunnelStartBodySchema,
 } from "./schema";
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
@@ -170,6 +171,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     titleSummarySettings,
     gitSettings,
     serve,
+    serveTunnel,
+    cloudflared,
     secrets,
     cloudflareSettings,
     cloudflareConnection,
@@ -202,6 +205,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     titleSummarySettings,
     gitSettings,
     serve,
+    serveTunnel,
+    cloudflared,
     secrets,
     cloudflareSettings,
     cloudflareConnection,
@@ -215,6 +220,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       await contentTrials.close();
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();
+      await serveTunnel.shutdown();
       await store.close();
       appDb.close();
     },
@@ -269,6 +275,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     appData,
     appDataMutation,
     sameOriginOnly,
+    tunnelNoStore,
     spaces,
     spaceDelete,
     healthRoutes,
@@ -544,6 +551,16 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post("/api/serve/stop", appDataMutation, jsonBodyValidator(ServeStopBodySchema, requestBodyValidationHook), (c) =>
       serveRoutes.stop(c, c.req.valid("json")),
     )
+    // 一時共有は BFF のメモリだけを持つ。GET は平文 HTTP の LAN 配備でも読めるようガードを掛けない
+    .get("/api/serve/tunnel", tunnelNoStore, serveRoutes.tunnelStatus)
+    .post(
+      "/api/serve/tunnel/start",
+      tunnelNoStore,
+      sameOriginOnly,
+      jsonBodyValidator(ServeTunnelStartBodySchema, requestBodyValidationHook),
+      (c) => serveRoutes.tunnelStart(c, c.req.valid("json")),
+    )
+    .post("/api/serve/tunnel/stop", tunnelNoStore, sameOriginOnly, (c) => serveRoutes.tunnelStop(c))
     .get("/api/secrets", appData, secretRoutes.list)
     .post(
       "/api/secrets",
@@ -880,6 +897,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     titleSummaryTest,
     gitSettings,
     serve,
+    serveTunnel,
     secrets,
     cloudflareSettings,
     cloudflareConnection,
@@ -917,6 +935,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     webSearchSettings,
     titleSummarySettings,
     cloudflareSettings,
+    serveTunnel,
   });
   const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
@@ -947,13 +966,19 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
   });
   // serve は実績 (app-db) と稼働判定 (プローブ / サンドボックス) の両方を読むため、
   // アプリデータが使えないときは 503 で止める (空の実績へ黙って落とさない)
-  const serveRoutes = createServeRoutes({ serve });
+  const serveRoutes = createServeRoutes({ serve, tunnel: serveTunnel });
   const mutationOrigin = mutationOriginGuard(appOrigin);
   const sessionSpace = sessionSpaceGuard(spaces, store);
   const spaceContext = spaceContextGuard(spaces, store);
   const sameOriginOnly = sameOriginOnlyGuard(appOrigin);
+  // 期限や URL を含む応答を、検証の 400 でも中間にキャッシュさせない
+  const tunnelNoStore: MiddlewareHandler = async (c, next) => {
+    await next();
+    c.header("cache-control", "no-store");
+  };
   return {
     appData,
+    tunnelNoStore,
     appDataMutation,
     mutationOrigin,
     sessionSpace,

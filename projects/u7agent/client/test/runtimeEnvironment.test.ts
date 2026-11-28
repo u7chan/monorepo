@@ -71,6 +71,7 @@ const IN_USE: RuntimeInUseResponse = {
   },
   webSearch: { enabled: true, provider: "tavily", host: "api.tavily.com" },
   cloudflare: { configured: true, available: true, accountId: ACCOUNT_ID },
+  tunnel: { available: true, unavailableReason: null },
 };
 
 interface Deferred<T> {
@@ -514,6 +515,7 @@ test("外部連携は Web 検索の provider と host、Cloudflare のアカウ�
       note: "設定済み",
       copy: { text: ACCOUNT_ID, label: "Cloudflare のアカウントIDをコピー" },
     },
+    { label: "一時共有", value: "利用できます" },
   ]);
 
   const stopped = runtimeIntegrationRows({
@@ -548,6 +550,16 @@ test("外部連携は Web 検索の provider と host、Cloudflare のアカウ�
     label: "Cloudflare",
     value: "未設定",
     note: "利用できません（サーバーの master key が未設定です）",
+  });
+
+  const unavailableTunnel = runtimeIntegrationRows({
+    ...IN_USE,
+    tunnel: { available: false, unavailableReason: "cloudflared が見つかりません" },
+  });
+  assert.deepEqual(unavailableTunnel[2], {
+    label: "一時共有",
+    value: "利用できません",
+    note: "cloudflared が見つかりません",
   });
 });
 
@@ -585,6 +597,7 @@ test("一括コピー本文は画面と同じ見出し・値・注記を markdow
       "## 外部連携",
       "- Web 検索: tavily（api.tavily.com · 有効）",
       `- Cloudflare: ${ACCOUNT_ID}（設定済み）`,
+      "- 一時共有: 利用できます",
       "",
       "## 実行環境（サンドボックス側）",
       "- 接続状態: 接続中",

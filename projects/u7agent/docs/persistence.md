@@ -82,6 +82,7 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 - 常用するツールはイメージへ組み込み、再作成後も利用できるようにする。
 - 永続マウントはバックアップではない。作業ファイルの削除やホスト障害からの復旧は別途備える。
 - サービスの稼働記録とログは作業領域の `.u7agent/serve/`（`state.json` / `app.log`、デバッグ用は `debug/<port>.log`）に置く。会話ストア（BFF 専用）へは置かない（BFF 再起動後の復元はサンドボックス経由で読む）。プロジェクトのディレクトリには作らない（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）。
+- 一時共有（Cloudflare Quick Tunnel）の状態は BFF のメモリだけに持つ。BFF を再起動すると共有は終わり、残った `cloudflared` は次の起動の掃除が止める（[service-tunnel.md](service-tunnel.md#状態と-api)）。
 
 配置・所有権・Compose の正本はデプロイ側で管理する。
 

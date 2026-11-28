@@ -143,6 +143,7 @@ const IN_USE: RuntimeInUseResponse = {
   },
   webSearch: { enabled: true, provider: "tavily", host: "api.tavily.com" },
   cloudflare: { configured: true, available: true, accountId: "0123456789abcdef0123456789abcdef" },
+  tunnel: { available: true, unavailableReason: null },
 };
 
 const ENVIRONMENT: RuntimeEnvironmentResponse = {

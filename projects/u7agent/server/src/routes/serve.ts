@@ -7,20 +7,27 @@ import type {
   RuntimeServeStopBody,
   ServeStartBody,
   ServeStopBody,
+  ServeTunnelStartBody,
 } from "../schema";
 import type { ServeService } from "../serve";
+import type { ServeTunnelControl } from "../service-tunnel";
 
 /**
  * serve (サービス) の状態と起動・停止。閲覧中の会話 id を受け取り、作業ディレクトリは会話ストアから
  * 解決する (client は cwd を送らない。サーバーが唯一の解決点)。
  * 稼働判定の失敗 (プローブ / サンドボックス呼び出し) は 502 / 503 で返し、停止中へ丸めない。
  */
-export function createServeRoutes({ serve }: { serve: ServeService }) {
+export function createServeRoutes({ serve, tunnel }: { serve: ServeService; tunnel: ServeTunnelControl }) {
   const failure = (c: Context, error: unknown) => {
     // httpError の分類 (403 / 404 / 409 / 502 / 503) はそのまま返す
     const status = (error as { statusCode?: number }).statusCode;
     if (typeof status === "number") return c.json({ error: messageFor(error) }, status as 400);
     return sandboxFailure(c, error);
+  };
+  // url が共有そのものなので、失敗の応答も含めてキャッシュさせない
+  const noStore = (c: Context) => {
+    c.header("cache-control", "no-store");
+    return c;
   };
 
   return {
@@ -82,6 +89,26 @@ export function createServeRoutes({ serve }: { serve: ServeService }) {
       try {
         return c.json(await serve.debugServers());
       } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    tunnelStatus: (c: Context) => noStore(c).json(tunnel.status()),
+
+    tunnelStart: async (c: Context, body: ServeTunnelStartBody) => {
+      try {
+        return noStore(c).json(await tunnel.start(body));
+      } catch (error) {
+        noStore(c);
+        return failure(c, error);
+      }
+    },
+
+    tunnelStop: async (c: Context) => {
+      try {
+        return noStore(c).json(await tunnel.stop());
+      } catch (error) {
+        noStore(c);
         return failure(c, error);
       }
     },

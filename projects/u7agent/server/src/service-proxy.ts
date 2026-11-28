@@ -47,9 +47,10 @@ export interface ServiceProxyOptions {
   port?: number;
   /**
    * ブラウザから見たサービスのオリジン (env `PI_PREVIEW_ORIGIN`)。TLS 終端の後ろではリクエスト自身の
-   * origin が `http://<host>` になるため、`Location` の書き換え先をこちらへ寄せる。未指定はリクエスト自身の origin
+   * origin が `http://<host>` になるため、`Location` の書き換え先をこちらへ寄せる。未指定はリクエスト自身の origin。
+   * 関数はゲートのように、起動後にしかオリジンが決まらない呼び出し側が使う
    */
-  serviceOrigin?: string;
+  serviceOrigin?: string | (() => string | undefined);
 }
 
 /** `Connection` が名指ししたヘッダもホップバイホップなので落とす */
@@ -126,7 +127,8 @@ export function createServiceProxy(options: ServiceProxyOptions = {}) {
   app.all("*", async (c) => {
     if (!host) return unreachableResponse();
     const url = new URL(c.req.url);
-    const browserOrigin = serviceOrigin ?? url.origin;
+    const configuredOrigin = typeof serviceOrigin === "function" ? serviceOrigin() : serviceOrigin;
+    const browserOrigin = configuredOrigin ?? url.origin;
     const method = c.req.method;
     const drop = hopByHopNames(c.req.raw.headers.get("connection") ?? undefined);
     const revalidate = method === "GET" || method === "HEAD";
@@ -146,7 +148,8 @@ export function createServiceProxy(options: ServiceProxyOptions = {}) {
       );
       upstreamRequest.once("error", () => resolve(unreachableResponse()));
       c.req.raw.signal.addEventListener("abort", () => upstreamRequest.destroy(), { once: true });
-      if (body) Readable.fromWeb(body).pipe(upstreamRequest);
+      // client の型チェックは DOM の ReadableStream で見るため、node:stream/web の型へ寄せる (実体は同じ)
+      if (body) Readable.fromWeb(body as unknown as Parameters<typeof Readable.fromWeb>[0]).pipe(upstreamRequest);
       else upstreamRequest.end();
     });
   });

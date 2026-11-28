@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
-import { cloudflaredStatusLine, createCloudflaredLauncher } from "./cloudflared";
+import { cloudflaredStatusLine } from "./cloudflared";
 import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
 import { publicOriginsLogLine, resolvePublicOrigins } from "./public-origin";
 import { resolvePreviewPort, resolveServiceListenPort } from "./preview-port";
@@ -33,19 +33,13 @@ const PUBLIC_ORIGINS = resolvePublicOrigins(process.env);
 async function main() {
   const bff = await createBffApp({
     cwd: APP_CWD,
+    port: PORT,
     filePreviewPort: FILE_PREVIEW_PORT,
     previewPort: PREVIEW_PORT,
     ...PUBLIC_ORIGINS,
   });
-  const cloudflared = createCloudflaredLauncher({
-    env: process.env,
-    sessionStoreDir: bff.sessionStore.path,
-    rootCwd: APP_CWD,
-    instancePort: PORT,
-    log: (line) => console.log(`[u7agent] ${line}`),
-  });
   // 前の BFF が残した cloudflared の掃除は起動を待たせない (起動する側が、終わるまで待つ)
-  void cloudflared.sweepOrphans();
+  void bff.cloudflared.sweepOrphans();
 
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] http://${HOST}:${info.port}`);
@@ -57,7 +51,7 @@ async function main() {
         ? `[u7agent] session store: ${bff.sessionStore.path ?? "disabled"}`
         : `[u7agent] session store unavailable: ${bff.sessionStore.error ?? "unknown"}`,
     );
-    console.log(`[u7agent] ${cloudflaredStatusLine(cloudflared.availability())}`);
+    console.log(`[u7agent] ${cloudflaredStatusLine(bff.cloudflared.availability())}`);
     if (bff.pi?.defaultModelUnset) {
       console.log(
         "[u7agent] no app default model is selected. Choose one in Settings > Models before sending a message.",

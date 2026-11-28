@@ -146,6 +146,25 @@ test("内部ホストを指す Location をブラウザから見たオリジン�
   }
 });
 
+test("serviceOrigin を関数で渡すと、その時点のオリジンへ Location を直す", async () => {
+  const upstream = await startUpstream((_req, res) => {
+    res.writeHead(302, { location: "http://127.0.0.1:8080/dash" });
+    res.end();
+  });
+  let origin: string | undefined;
+  const proxy = createServiceProxy({ host: "127.0.0.1", port: upstream.port, serviceOrigin: () => origin });
+  try {
+    const fallback = await proxy.request("http://gate.local/start");
+    assert.equal(fallback.headers.get("location"), "http://gate.local/dash");
+
+    origin = "https://quiet-river-a1b2.trycloudflare.com";
+    const tunneled = await proxy.request("http://gate.local/start");
+    assert.equal(tunneled.headers.get("location"), "https://quiet-river-a1b2.trycloudflare.com/dash");
+  } finally {
+    await upstream.close();
+  }
+});
+
 test("rewriteLocation は内部ホスト (サンドボックス名 / ループバック) だけを書き換える", () => {
   assert.equal(
     rewriteLocation("http://u7agent-sandbox:8080/a?b=1", "http://lan:8016", "u7agent-sandbox"),
