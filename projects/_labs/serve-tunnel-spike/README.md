@@ -22,7 +22,7 @@ Quick Tunnel はアカウント不要で、`cloudflared tunnel --url` を実行�
 
 ## 使い方
 
-Linux と Node.js 22 以上を使います。外向きに `api.trycloudflare.com:443` と `region{1,2}.v2.argotunnel.com:7844` の TCP / UDP が要ります。
+Linux と Node.js 22 以上を使います。外向きに `api.trycloudflare.com:443` と `region{1,2}.v2.argotunnel.com:7844` の TCP / UDP が要ります。HTTP/2 の測定には HTTP/2 対応の `curl` を使います。`curl` が無い場合は `httpVersionByCurl` が空になりますが、公開 URL の到達確認は続きます。
 
 ```sh
 cd projects/_labs/serve-tunnel-spike
@@ -32,6 +32,9 @@ node src/install-cloudflared.mjs
 
 # 実トンネルを数本作り、検証して out/report.md を出す（数分）
 node src/spike.mjs
+
+# IP・ホスト名のマスクの単体テスト
+node --test test/*.test.mjs
 ```
 
 `src/spike.mjs` は実行のたびに `out/` を作り直します。`out/` には生のログと、URL を `<random>.trycloudflare.com` に伏せたレポートが入り、Git 管理外です。
@@ -88,6 +91,7 @@ src/origin.mjs               検証用の HTTP / SSE / WebSocket オリジン
 src/tunnel.mjs               cloudflared の起動、メトリクスの待機、停止
 src/spike.mjs                検証シナリオとレポートの生成
 src/report.mjs               レポートの整形とサニタイズ
+test/mask.test.mjs           マスクの単体テスト
 results/                     実行結果（実ホスト名・IP を除く）
 ```
 

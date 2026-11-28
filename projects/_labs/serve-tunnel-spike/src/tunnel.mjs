@@ -12,8 +12,9 @@ export function mask(text) {
   return String(text)
     .replace(/[a-z0-9-]+\.trycloudflare\.com/gi, "<random>.trycloudflare.com")
     .replace(/\b(?!127\.)(?!0\.0\.0\.0)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<ip>")
-    .replace(/\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b/gi, "<ipv6>")
-    .replace(/\b(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?\b/gi, "<ipv6>");
+    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}(?![0-9a-f:])/gi, "<ipv6>")
+    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f:])/gi, "<ipv6>")
+    .replace(/(?<![\w:])::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f:])/gi, "<ipv6>");
 }
 
 export function freePort() {
@@ -140,9 +141,17 @@ export async function launchTunnel({ originPort, outDir, label = "tunnel" }) {
     exit,
     startedAt,
     waitReady: (timeoutMs) =>
-      waitUntilReady({ metricsPort, startedAt, lines, isAlive: () => child.exitCode === null, timeoutMs }),
+      waitUntilReady({
+        metricsPort,
+        startedAt,
+        lines,
+        isAlive: () => child.exitCode === null && child.signalCode === null,
+        timeoutMs,
+      }),
     async stop({ timeoutMs = 15000 } = {}) {
-      if (child.exitCode !== null) return { alreadyExited: true, code: child.exitCode, ms: 0 };
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return { alreadyExited: true, code: child.exitCode, signal: child.signalCode, ms: 0 };
+      }
       const stopAt = performance.now();
       child.kill("SIGTERM");
       const result = await Promise.race([exit, sleep(timeoutMs).then(() => null)]);

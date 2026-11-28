@@ -24,6 +24,8 @@ const cycleCount = cyclesArg ? Number(cyclesArg.split("=")[1]) : 3;
 if (!Number.isInteger(cycleCount) || cycleCount < 1) throw new Error(`invalid --cycles: ${cycleCount}`);
 const checks = [];
 const cleanups = [];
+let rateLimited = false;
+const isRateLimited = (error) => /status 429/i.test(error?.message ?? "");
 const runStartedAt = new Date().toISOString();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -284,12 +286,13 @@ async function runBasic(origin) {
     const dns = await dnsPromise;
     // NXDOMAIN の負のキャッシュ（この環境では約 30 秒）を踏まないよう、最初の問い合わせを遅らせる
     await sleep(5000);
+    const fetchStart = performance.now();
     try {
       const fetched = await fetchUntilOk(
         `${ready.url}/echo`,
         { headers: { origin: "https://example.test", referer: "https://example.test/page" } },
-        60000,
-        readyWall,
+        90000,
+        fetchStart,
       );
       const originEcho = JSON.parse(fetched.text);
       const publicHeaders = {
@@ -308,10 +311,12 @@ async function runBasic(origin) {
           dnsAttempts: dns.attempts,
           dnsLastStatus: dns.lastStatus,
           dnsLastError: dns.lastError,
-          probeStartAfterReadyMs: 5000,
-          firstResponseAfterReadyMs: fetched.ms,
+          fetchStartAfterReadyMs: Math.round(fetchStart - readyWall),
+          firstResponseAfterFetchMs: fetched.ms,
+          firstResponseAfterReadyMs: Math.round(fetchStart - readyWall + fetched.ms),
           status: fetched.res.status,
-          httpVersionByCurl: curl.httpVersion,
+          httpVersionByCurl: curl.httpVersion ?? null,
+          curlError: curl.error ?? null,
           headers: publicHeaders,
           warningPage: /just a moment|attention required/i.test(fetched.text),
           originSaw: {
@@ -321,7 +326,7 @@ async function runBasic(origin) {
             referer: originEcho.headers.referer ?? null,
           },
         },
-        `ready の ${dns.at ?? "?"} ms 後に DNS が解決し、${fetched.ms} ms で 200`,
+        `DNS ${dns.at ?? "未観測"} ms、最初の応答 ${Math.round(fetchStart - readyWall + fetched.ms)} ms（ready 基準）`,
         "DNS が引ける前に問い合わせると NXDOMAIN が約 30 秒キャッシュされるため、DoH の解決と 5 秒の待ちの後に叩いた",
       );
     } catch (error) {
@@ -329,21 +334,45 @@ async function runBasic(origin) {
         "public",
         "公開 URL とヘッダの転送",
         "FAIL",
-        { readyAt: ready.readyAt, dnsAnswerAfterReadyMs: dns.at, dnsAttempts: dns.attempts, error: error.message },
+        {
+          readyAt: ready.readyAt,
+          dnsAnswerAfterReadyMs: dns.at,
+          dnsAttempts: dns.attempts,
+          fetchStartAfterReadyMs: Math.round(fetchStart - readyWall),
+          error: error.message,
+        },
         "公開 URL に届かない",
       );
     }
 
-    const directSse = await sseArrivals(`http://127.0.0.1:${origin.port}/sse`);
-    const tunnelSse = await sseArrivals(`${ready.url}/sse`);
-    const spread = tunnelSse.arrivals.length > 1 ? tunnelSse.arrivals.at(-1) - tunnelSse.arrivals[0] : 0;
-    record(
-      "sse",
-      "SSE のストリーミング",
-      "INFO",
-      { direct: directSse, tunnel: tunnelSse, tunnelArrivalSpreadMs: spread },
-      spread < 200 ? "6 イベントが最後にまとめて届く（バッファされる）" : "イベントが逐次届く",
-    );
+    let directSse;
+    let tunnelSse;
+    try {
+      directSse = await sseArrivals(`http://127.0.0.1:${origin.port}/sse`);
+      tunnelSse = await sseArrivals(`${ready.url}/sse`);
+    } catch (error) {
+      record("sse", "SSE のストリーミング", "FAIL", { error: error.message }, "SSE を取得できなかった");
+    }
+    if (directSse && tunnelSse) {
+      const expected = 6;
+      const spread = tunnelSse.arrivals.length > 1 ? tunnelSse.arrivals.at(-1) - tunnelSse.arrivals[0] : 0;
+      const complete =
+        directSse.status === 200 &&
+        tunnelSse.status === 200 &&
+        directSse.arrivals.length === expected &&
+        tunnelSse.arrivals.length === expected;
+      record(
+        "sse",
+        "SSE のストリーミング",
+        complete ? "INFO" : "FAIL",
+        { direct: directSse, tunnel: tunnelSse, tunnelArrivalSpreadMs: spread },
+        complete
+          ? spread < 200
+            ? `${expected} イベントが最後にまとめて届く（バッファされる）`
+            : "イベントが逐次届く"
+          : `SSE を取得できなかった（direct ${directSse.arrivals.length}/${expected}, tunnel ${tunnelSse.arrivals.length}/${expected}, status ${directSse.status}/${tunnelSse.status}）`,
+      );
+    }
 
     const ws = await websocketEcho(`${ready.url.replace(/^https/, "wss")}/ws`);
     record(
@@ -414,7 +443,10 @@ async function runCycles(origin, count = 3) {
       await tunnel.stop();
       await tunnel.saveLog(`cycle-${cycle}-failed`);
       // 429 は作成の上限。続けても同じ結果になるので打ち切る
-      if (rejected) break;
+      if (rejected) {
+        rateLimited = true;
+        break;
+      }
     } finally {
       const index = cleanups.indexOf(cleanup);
       if (index >= 0) cleanups.splice(index, 1);
@@ -443,60 +475,75 @@ async function runOrphan(origin) {
   const metricsPort = await freePort();
   const home = join(outDir, `home-orphan-${Date.now()}`);
   await mkdir(home, { recursive: true });
+  const logPath = join(home, "cloudflared.log");
   const launcherCode = `
 const { spawn } = require("node:child_process");
-const [bin, ...args] = process.argv.slice(1);
-const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+const fs = require("node:fs");
+const [logPath, bin, ...args] = process.argv.slice(1);
+const log = fs.openSync(logPath, "a");
+const child = spawn(bin, args, { stdio: ["ignore", log, log] });
 process.stdout.write(child.pid + "\\n");
-child.stdout.on("data", (chunk) => process.stderr.write(chunk));
-child.stderr.on("data", (chunk) => process.stderr.write(chunk));
 setInterval(() => {}, 1000);
 `;
   const launcher = spawn(
     process.execPath,
-    ["-e", launcherCode, BINARY, ...tunnelArgs({ originPort: origin.port, metricsPort })],
-    { env: { HOME: home }, stdio: ["ignore", "pipe", "pipe"] },
+    ["-e", launcherCode, logPath, BINARY, ...tunnelArgs({ originPort: origin.port, metricsPort })],
+    // 中断時にランチャーと子をまとめて止められるよう、独立したプロセスグループにする
+    { env: { HOME: home }, stdio: ["ignore", "pipe", "pipe"], detached: true },
   );
-  const childLines = [];
+  const launcherLines = [];
   launcher.stderr.setEncoding("utf8");
   launcher.stderr.on("data", (chunk) => {
-    for (const line of chunk.split("\n")) if (line.trim()) childLines.push(line.trim());
+    for (const line of chunk.split("\n")) if (line.trim()) launcherLines.push(line.trim());
   });
   const startedAt = performance.now();
   let pid;
   let orphanStop;
   const orphanCleanup = () => {
     if (pid && pidAlive(pid)) process.kill(pid, "SIGKILL");
+    if (launcher.exitCode === null && launcher.signalCode === null) {
+      try {
+        process.kill(-launcher.pid, "SIGKILL");
+      } catch {
+        launcher.kill("SIGKILL");
+      }
+    }
   };
+  cleanups.push(orphanCleanup);
   try {
     pid = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("launcher did not report the child pid")), 5000);
+      launcher.stdout.setEncoding("utf8");
+      let buffer = "";
       launcher.stdout.on("data", (chunk) => {
-        const line = String(chunk).split("\n")[0].trim();
+        buffer += chunk;
+        const line = buffer.split("\n")[0].trim();
         if (/^\d+$/.test(line)) {
           clearTimeout(timer);
-          resolve(Number(line));
+          pid = Number(line);
+          resolve(pid);
         }
       });
       launcher.once("exit", (code) => reject(new Error(`launcher exited early: ${code}`)));
     });
-    cleanups.push(orphanCleanup);
 
     let ready;
     try {
       ready = await waitUntilReady({
         metricsPort,
         startedAt,
-        lines: childLines,
+        lines: launcherLines,
         isAlive: () => pidAlive(pid),
       });
     } catch (error) {
-      const rejected = /status 429/i.test(error.message);
+      const log = await readFile(logPath, "utf8").catch(() => "");
+      const rejected = isRateLimited(error) || /status 429/i.test(log);
+      if (rejected) rateLimited = true;
       record(
         "orphan",
         "BFF の SIGKILL 後に子が残るか",
         rejected ? "SKIP" : "FAIL",
-        { error: error.message },
+        { error: error.message, logTail: log.split("\n").slice(-5).join("\n") },
         rejected ? "429 のため未実施" : "トンネルが準備できなかった",
       );
       return;
@@ -534,13 +581,12 @@ setInterval(() => {}, 1000);
       aliveAfterKill ? "親を SIGKILL しても cloudflared とトンネルは残る" : "親の終了で子も終わった",
       "BFF を SIGKILL すると子は孤児になり、ゲートが無いまま接続だけが残る。pid ファイルでの掃除が要る（#2805）",
     );
-    cleanups.splice(cleanups.indexOf(orphanCleanup), 1);
   } finally {
     if (pid && pidAlive(pid)) {
       process.kill(pid, "SIGTERM");
       if (!(await waitGone(pid, 10000))) process.kill(pid, "SIGKILL");
     }
-    if (launcher.exitCode === null) launcher.kill("SIGKILL");
+    orphanCleanup();
     await rm(home, { recursive: true, force: true });
     const index = cleanups.indexOf(orphanCleanup);
     if (index >= 0) cleanups.splice(index, 1);
@@ -591,7 +637,12 @@ async function main() {
     try {
       basic = await runBasic(origin);
     } catch (error) {
-      record("basic", "基本シナリオ", "FAIL", { error: error.message }, "基本シナリオが完了しなかった");
+      if (isRateLimited(error)) {
+        rateLimited = true;
+        record("basic", "基本シナリオ", "SKIP", { error: error.message }, "429 のため公開確認を開始できなかった");
+      } else {
+        record("basic", "基本シナリオ", "FAIL", { error: error.message }, "基本シナリオが完了しなかった");
+      }
     }
     if (basic) {
       record(
@@ -608,17 +659,25 @@ async function main() {
       );
     }
     if (!skipCycles) {
-      try {
-        await runCycles(origin, cycleCount);
-      } catch (error) {
-        record("restart-cycles", "作成と停止の連続", "FAIL", { error: error.message }, "連続作成が完了しなかった");
+      if (rateLimited) {
+        record("restart-cycles", "作成と停止の連続", "SKIP", {}, "429 のため未実施");
+      } else {
+        try {
+          await runCycles(origin, cycleCount);
+        } catch (error) {
+          record("restart-cycles", "作成と停止の連続", "FAIL", { error: error.message }, "連続作成が完了しなかった");
+        }
       }
     }
     if (!skipOrphan) {
-      try {
-        await runOrphan(origin);
-      } catch (error) {
-        record("orphan", "BFF の SIGKILL 後に子が残るか", "FAIL", { error: error.message }, "孤児の確認が完了しなかった");
+      if (rateLimited) {
+        record("orphan", "BFF の SIGKILL 後に子が残るか", "SKIP", {}, "429 のため未実施");
+      } else {
+        try {
+          await runOrphan(origin);
+        } catch (error) {
+          record("orphan", "BFF の SIGKILL 後に子が残るか", "FAIL", { error: error.message }, "孤児の確認が完了しなかった");
+        }
       }
     }
   } finally {
@@ -639,7 +698,7 @@ async function main() {
       sha256,
     },
     checks,
-    options: { skipCycles, skipOrphan, cycleCount },
+    options: { skipCycles, skipOrphan, cycleCount, rateLimited },
   };
   await writeReport(outDir, report);
   console.log(`\nreport: ${join(outDir, "report.md")}`);
