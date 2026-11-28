@@ -22,7 +22,7 @@
 ## レイヤー
 
 1. **実行の分離（`server/src/sandbox/`）**
-   - 作業用ツールは全てサンドボックス（別プロセス・別コンテナ）で実行する。BFF は子プロセスを起こさないため、子プロセスの環境変数を絞る旧 child-env.ts は役目を終えて廃止した
+   - 作業用ツールは全てサンドボックス（別プロセス・別コンテナ）で実行する。BFF は子プロセスを起こさないため、子プロセスの環境変数を絞る旧 child-env.ts は役目を終えて廃止した。例外は一時共有の `cloudflared` の起動 1 本で、これに限って env を許可リストで絞る（BFF の env は継承しない。[service-tunnel.md](service-tunnel.md#契約)）
    - サンドボックスには LLM 認証情報を渡さない。bash が何を読んでも（`BASH_ENV`・`~/.bashrc` 等）、キーはそこに存在しない
 2. **ツール定義のフック（`server/src/secret-guard.ts`）**
    - `createRemoteToolDefinitions` が作るリモート定義を `wrapToolDefinitionWithSecretMasker` で包み、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する

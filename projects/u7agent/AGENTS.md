@@ -16,7 +16,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。
 - client は `hono/client`（hc）で server の `AppType` を参照し、型安全に API を呼ぶ。
 - セッションと会話履歴は BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存し、再起動後も復元する。
 - エージェント定義とプロジェクトはアプリデータの SQLite（`<PI_SESSION_STORE>/u7agent.db`）へ保存され、再起動後も残る。スキルはファイル（`.agents/skills`）と組み込みスキルを正とし、DB カタログは持たない。
-- 作業用ツールはサンドボックス（別プロセス / 別コンテナ）へ分離済み。BFF は子プロセスを起こさない。
+- 作業用ツールはサンドボックス（別プロセス / 別コンテナ）へ分離済み。BFF は子プロセスを起こさない。例外は一時共有の `cloudflared` の起動 1 本だけで、資格情報を使わず、別プロセスで、env を許可リストで絞り、引数と向き先を固定する（[docs/service-tunnel.md](docs/service-tunnel.md#契約)）。
 
 ## 検証
 

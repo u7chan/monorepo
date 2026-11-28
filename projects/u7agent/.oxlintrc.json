@@ -157,6 +157,37 @@
     },
     {
       "files": [
+        "server/src/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "node:child_process",
+                "message": "BFF は子プロセスを起こさない。例外は server/src/sandbox/ と server/src/cloudflared.ts だけ (docs/service-tunnel.md)"
+              },
+              {
+                "name": "child_process",
+                "message": "BFF は子プロセスを起こさない。例外は server/src/sandbox/ と server/src/cloudflared.ts だけ (docs/service-tunnel.md)"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "server/src/sandbox/**/*.{ts,tsx}",
+        "server/src/cloudflared.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
         "server/src/wait-total.ts"
       ],
       "rules": {

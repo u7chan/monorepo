@@ -31,9 +31,13 @@ COPY server/package.json ./server/package.json
 # trixie (fd-find 10.2.0) でも取得方式は変えずリリースバイナリを固定する。test / final の両方で使う。
 # ベースは base と同じ版・digest に固定する。ARG で共通化すると dependabot の docker 更新が
 # FROM 行のリテラルを書き換えられないので、値を 2 か所に書く。
+# cloudflared (一時共有の実体。BFF だけが起動する) も同じステージで取得する。node の版と digest を 3 か所目に書かないため。
+# PATH に入れない固定の置き場へ入れ、sha256 の照合は install-cloudflared.mjs が行う。
 FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
+COPY scripts/install-cloudflared.mjs /tmp/install-cloudflared.mjs
+RUN node /tmp/install-cloudflared.mjs /usr/local/libexec/u7agent
 
 FROM manifests AS dependencies
 RUN pnpm install --frozen-lockfile
@@ -59,6 +63,8 @@ COPY scripts/dev.mjs ./scripts/dev.mjs
 COPY scripts/steering-send.ts ./scripts/steering-send.ts
 COPY scripts/bench-history-*.ts scripts/history-bench-fixture.ts scripts/tsconfig.json ./scripts/
 COPY scripts/install-landlock.mjs ./scripts/install-landlock.mjs
+# 配布スクリプトの契約 (sha256 の照合・配置先が BFF の探索先と一致すること) をテストが読む
+COPY scripts/install-cloudflared.mjs ./scripts/install-cloudflared.mjs
 COPY scripts/landlock-exec.py ./scripts/landlock-exec.py
 COPY scripts/landlock-net-probe.py ./scripts/landlock-net-probe.py
 # shell-quote.mjs は install-browser-cli.mjs と install-landlock.mjs の共有 module (テストも読む)
@@ -195,6 +201,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgre
 COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
 RUN chmod 0755 /usr/local/bin/u7agent-landlock
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
+# 一時共有の実体 (server/src/cloudflared.ts の固定の置き場)。root の所有のままにして、実行ユーザー (node) から書き換えられないようにする。
+# ca-certificates は上の apt で入っている (api.trycloudflare.com へ TLS で繋ぐのに要る)。
+COPY --from=fd /usr/local/libexec/u7agent/cloudflared /usr/local/libexec/u7agent/cloudflared
+RUN /usr/local/libexec/u7agent/cloudflared --version
 # 配布セットは browser ステージから受ける (app の node_modules は持ち込まない)。
 COPY --from=browser /ms-playwright /ms-playwright
 ARG COMMIT_HASH=""
