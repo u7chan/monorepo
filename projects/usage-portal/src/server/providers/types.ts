@@ -10,12 +10,15 @@ export type UsageWindow = {
 
 /**
  * Codex のリセット枠。回数は usage から、期限は詳細 API から読む。
- * `expiries` が null のときは詳細を取れておらず、回数だけが分かる。
+ * `details` が null のときは詳細を取れておらず、回数だけが分かる。
  */
 export type ResetCredits = {
   available: number;
-  /** available な枠の期限（epoch ms、昇順）。期限の無い枠は含めない。 */
-  expiries: number[] | null;
+  /**
+   * 詳細で確認できた available な枠（期限の早い順）。
+   * `expiresAt: null` は期限なしと確認できた枠。一覧に無い枠は期限不明。
+   */
+  details: { expiresAt: number | null }[] | null;
 };
 
 export type ProviderSnapshot = {

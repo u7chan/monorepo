@@ -182,14 +182,17 @@ describe("GET /api/usage", () => {
 
   test("Codex のリセット枠を期限つきで返し、他 provider は null にする", async () => {
     const h = harness();
-    const expiries = [BASE_TIME + 14 * 24 * 60 * 60 * 1000, BASE_TIME + 28 * 24 * 60 * 60 * 1000];
+    const details = [
+      { expiresAt: BASE_TIME + 14 * 24 * 60 * 60 * 1000 },
+      { expiresAt: BASE_TIME + 28 * 24 * 60 * 60 * 1000 },
+    ];
 
-    saveProviderSnapshot(h.db, "codex", usageSnapshot({ resetCredits: { available: 2, expiries } }));
+    saveProviderSnapshot(h.db, "codex", usageSnapshot({ resetCredits: { available: 2, details } }));
 
     const payload = await readUsage(h, await sessionCookie(h.app));
     const codex = payload.sources.find((source) => source.provider === "codex");
 
-    expect(codex?.resetCredits).toEqual({ available: 2, expiries });
+    expect(codex?.resetCredits).toEqual({ available: 2, details });
     expect(payload.sources.find((source) => source.provider === "claude")?.resetCredits).toBeNull();
   });
 

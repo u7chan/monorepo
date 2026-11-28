@@ -37,8 +37,8 @@ export type ProviderState = "loading" | "ok" | "stale" | "error";
 /** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
 export type UsageSourceAccount = { id: string; name: string; icon: string };
 
-/** Codex のリセット枠。`expiries` が null なら期限は未取得で、回数だけが分かる。 */
-export type ResetCredits = { available: number; expiries: number[] | null };
+/** Codex のリセット枠。`details` が null なら期限は未取得で、回数だけが分かる。 */
+export type ResetCredits = { available: number; details: { expiresAt: number | null }[] | null };
 
 export type UsageSource = {
   /** `codex` または account の uuid。 */
@@ -793,8 +793,28 @@ function parseResetCredits(value: Record<string, unknown> | null): ResetCredits 
 
   return {
     available,
-    expiries: Array.isArray(value.expiries) ? readNumbers(value, "expiries") : null,
+    details: Array.isArray(value.details)
+      ? readObjects(value, "details").map(parseResetCreditDetail).filter(isPresent)
+      : null,
   };
+}
+
+function parseResetCreditDetail(value: unknown): { expiresAt: number | null } | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const expiresAt = (value as Record<string, unknown>).expiresAt;
+
+  if (expiresAt === null) {
+    return { expiresAt: null };
+  }
+
+  return typeof expiresAt === "number" && Number.isFinite(expiresAt) ? { expiresAt } : null;
+}
+
+function isPresent<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 function parseWindow(value: unknown): UsageWindow | null {

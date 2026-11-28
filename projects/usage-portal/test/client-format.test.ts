@@ -53,49 +53,72 @@ describe("describeResetCredits", () => {
   const now = new Date(2026, 10, 28, 12, 0).getTime();
 
   test("回数が 0 なら行を出さない", () => {
-    expect(describeResetCredits({ available: 0, expiries: [now + DAY] }, now)).toBeNull();
+    expect(describeResetCredits({ available: 0, details: [{ expiresAt: now + DAY }] }, now)).toBeNull();
   });
 
   test("期限を取れていなければ回数だけを出し、期限を推測しない", () => {
-    expect(describeResetCredits({ available: 2, expiries: null }, now)).toEqual({
+    expect(describeResetCredits({ available: 2, details: null }, now)).toEqual({
       label: "リセット枠 2回",
       rows: [],
-      note: null,
+      notes: [],
     });
   });
 
   test("期限は全部の枠を昇順で出し、残り時間を添える", () => {
-    expect(describeResetCredits({ available: 2, expiries: [now + 28 * DAY, now + 15 * DAY] }, now)).toEqual({
+    expect(
+      describeResetCredits(
+        { available: 2, details: [{ expiresAt: now + 28 * DAY }, { expiresAt: now + 15 * DAY }] },
+        now,
+      ),
+    ).toEqual({
       label: "リセット枠 2回",
       rows: [
         { remaining: "あと 15 日", at: `期限 ${formatDateTime(now + 15 * DAY)}` },
         { remaining: "あと 28 日", at: `期限 ${formatDateTime(now + 28 * DAY)}` },
       ],
-      note: null,
+      notes: [],
     });
   });
 
-  test("期限の無い枠だけなら期限なしと出す", () => {
-    expect(describeResetCredits({ available: 1, expiries: [] }, now)).toEqual({
+  test("期限なしと確認できた枠は期限なしと出す", () => {
+    expect(describeResetCredits({ available: 1, details: [{ expiresAt: null }] }, now)).toEqual({
       label: "リセット枠 1回",
       rows: [],
-      note: "期限なし",
+      notes: ["期限なし 1件"],
     });
   });
 
-  test("一覧が回数より少なければ、残りを期限不明として出す", () => {
-    expect(describeResetCredits({ available: 3, expiries: [now + DAY] }, now)).toEqual({
+  test("期限ありと期限なしが混ざっても、期限なしを期限不明にしない", () => {
+    expect(
+      describeResetCredits({ available: 2, details: [{ expiresAt: now + DAY }, { expiresAt: null }] }, now),
+    ).toEqual({
+      label: "リセット枠 2回",
+      rows: [{ remaining: "あと 1 日", at: `期限 ${formatDateTime(now + DAY)}` }],
+      notes: ["期限なし 1件"],
+    });
+  });
+
+  test("一覧が回数より少なければ、残りだけを期限不明として出す", () => {
+    expect(describeResetCredits({ available: 3, details: [{ expiresAt: now + DAY }] }, now)).toEqual({
       label: "リセット枠 3回",
       rows: [{ remaining: "あと 1 日", at: `期限 ${formatDateTime(now + DAY)}` }],
-      note: "他 2件は期限不明",
+      notes: ["他 2件は期限不明"],
+    });
+  });
+
+  test("詳細が空なら全部を期限不明と出し、期限なしと書かない", () => {
+    expect(describeResetCredits({ available: 2, details: [] }, now)).toEqual({
+      label: "リセット枠 2回",
+      rows: [],
+      notes: ["期限不明 2件"],
     });
   });
 
   test("期限を過ぎた枠は期限切れと出す", () => {
-    expect(describeResetCredits({ available: 1, expiries: [now - HOUR] }, now)).toEqual({
+    expect(describeResetCredits({ available: 1, details: [{ expiresAt: now - HOUR }] }, now)).toEqual({
       label: "リセット枠 1回",
       rows: [{ remaining: "期限切れ", at: `期限 ${formatDateTime(now - HOUR)}` }],
-      note: null,
+      notes: [],
     });
   });
 });

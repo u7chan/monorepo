@@ -131,7 +131,11 @@ export function ProviderCard(props: {
               ))}
             </ul>
           ) : null}
-          {resetCredits.note ? <p class="up-caption">{resetCredits.note}</p> : null}
+          {resetCredits.notes.map((note) => (
+            <p class="up-caption" key={note}>
+              {note}
+            </p>
+          ))}
         </div>
       ) : null}
 

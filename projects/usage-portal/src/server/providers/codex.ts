@@ -100,15 +100,16 @@ export function parseCodexUsage(body: unknown, capturedAt: number): ProviderSnap
     windows: withUniqueLabels(windows),
     notes,
     // 期限は別の応答にしか無い。ここでは回数だけを持ち、詳細は取得側で足す。
-    resetCredits: resetCredits !== null && resetCredits > 0 ? { available: resetCredits, expiries: null } : undefined,
+    resetCredits: resetCredits !== null && resetCredits > 0 ? { available: resetCredits, details: null } : undefined,
   };
 }
 
 /**
- * 詳細 API の応答から、available な枠の期限だけを昇順で読む。
- * 期限の無い枠は含めない。形が読めない応答は「詳細なし」として null を返す。
+ * 詳細 API の応答から、available な枠を期限の早い順で読む。
+ * 期限なし（`expires_at: null`）は `expiresAt: null` として残し、日時を読めない枠は落とす。
+ * 形が読めない応答は「詳細なし」として null を返す。
  */
-export function parseCodexResetCredits(body: unknown): number[] | null {
+export function parseCodexResetCredits(body: unknown): { expiresAt: number | null }[] | null {
   if (typeof body !== "object" || body === null) {
     return null;
   }
@@ -119,21 +120,28 @@ export function parseCodexResetCredits(body: unknown): number[] | null {
     return null;
   }
 
-  const expiries: number[] = [];
+  const details: { expiresAt: number | null }[] = [];
 
   for (const credit of credits) {
     if (readString(credit, "status") !== "available") {
       continue;
     }
 
+    const raw = credit !== null && typeof credit === "object" ? (credit as Record<string, unknown>).expires_at : null;
+
+    if (raw === null) {
+      details.push({ expiresAt: null });
+      continue;
+    }
+
     const expiresAt = readIsoTime(credit, "expires_at");
 
     if (expiresAt !== null) {
-      expiries.push(expiresAt);
+      details.push({ expiresAt });
     }
   }
 
-  return expiries.sort((a, b) => a - b);
+  return details.sort((a, b) => (a.expiresAt ?? Number.MAX_SAFE_INTEGER) - (b.expiresAt ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** 詳細の期限を snapshot へ足す。詳細が読めないときは usage の回数をそのまま残す。 */
@@ -142,9 +150,9 @@ export function withResetCreditDetails(snapshot: ProviderSnapshot, body: unknown
     return snapshot;
   }
 
-  const expiries = parseCodexResetCredits(body);
+  const details = parseCodexResetCredits(body);
 
-  if (expiries === null) {
+  if (details === null) {
     return snapshot;
   }
 
@@ -152,7 +160,7 @@ export function withResetCreditDetails(snapshot: ProviderSnapshot, body: unknown
     ...snapshot,
     resetCredits: {
       available: snapshot.resetCredits.available,
-      expiries,
+      details,
     },
   };
 }

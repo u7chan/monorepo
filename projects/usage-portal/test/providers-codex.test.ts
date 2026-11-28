@@ -116,7 +116,7 @@ describe("parseCodexUsage", () => {
     );
 
     expect(withNotes.notes).toEqual(["クレジット残高 25"]);
-    expect(withNotes.resetCredits).toEqual({ available: 2, expiries: null });
+    expect(withNotes.resetCredits).toEqual({ available: 2, details: null });
 
     const withoutNotes = parseCodexUsage(
       usage(
@@ -223,20 +223,25 @@ describe("parseCodexUsage", () => {
 });
 
 describe("parseCodexResetCredits", () => {
-  test("available な枠の期限だけを昇順で返す", () => {
-    const expiries = parseCodexResetCredits({
+  test("available な枠を期限の早い順で返し、期限なしは null として残す", () => {
+    const details = parseCodexResetCredits({
       credits: [
         { status: "available", expires_at: "2026-12-26T05:05:40.952825Z" },
         { status: "redeemed", expires_at: "2026-01-01T00:00:00Z" },
         { status: "available", expires_at: "2026-12-12T22:36:59.170831Z" },
+        { status: "available", expires_at: null },
       ],
-      available_count: 2,
+      available_count: 3,
     });
 
-    expect(expiries).toEqual([Date.parse("2026-12-12T22:36:59.170831Z"), Date.parse("2026-12-26T05:05:40.952825Z")]);
+    expect(details).toEqual([
+      { expiresAt: Date.parse("2026-12-12T22:36:59.170831Z") },
+      { expiresAt: Date.parse("2026-12-26T05:05:40.952825Z") },
+      { expiresAt: null },
+    ]);
   });
 
-  test("期限の無い枠と日時を読めない枠は期限に数えない", () => {
+  test("日時を読めない枠は落とし、期限なしと混同しない", () => {
     expect(
       parseCodexResetCredits({
         credits: [
@@ -245,10 +250,10 @@ describe("parseCodexResetCredits", () => {
           { status: "available" },
         ],
       }),
-    ).toEqual([]);
+    ).toEqual([{ expiresAt: null }]);
   });
 
-  test("credits が配列でない応答は「期限不明」として null", () => {
+  test("credits が配列でない応答は「詳細なし」として null", () => {
     expect(parseCodexResetCredits({})).toBeNull();
     expect(parseCodexResetCredits({ credits: null })).toBeNull();
     expect(parseCodexResetCredits(null)).toBeNull();
@@ -271,14 +276,14 @@ describe("withResetCreditDetails", () => {
 
     expect(merged.resetCredits).toEqual({
       available: 2,
-      expiries: [Date.parse("2026-12-12T22:36:59Z"), Date.parse("2026-12-26T05:05:40Z")],
+      details: [{ expiresAt: Date.parse("2026-12-12T22:36:59Z") }, { expiresAt: Date.parse("2026-12-26T05:05:40Z") }],
     });
   });
 
-  test("期限の無い枠しか無ければ空の期限一覧にする", () => {
+  test("期限なしの枠は期限不明と区別して null で残す", () => {
     const merged = withResetCreditDetails(snapshot, { credits: [{ status: "available", expires_at: null }] });
 
-    expect(merged.resetCredits).toEqual({ available: 2, expiries: [] });
+    expect(merged.resetCredits).toEqual({ available: 2, details: [{ expiresAt: null }] });
   });
 
   test("詳細を読めない応答は usage の回数だけを残す", () => {
@@ -334,7 +339,10 @@ describe("fetchCodexUsage", () => {
     expect(urls).toEqual([CODEX_USAGE_URL, CODEX_RESET_CREDITS_URL]);
     expect(snapshot.resetCredits).toEqual({
       available: 2,
-      expiries: [Date.parse("2026-12-12T22:36:59.170831Z"), Date.parse("2026-12-26T05:05:40.952825Z")],
+      details: [
+        { expiresAt: Date.parse("2026-12-12T22:36:59.170831Z") },
+        { expiresAt: Date.parse("2026-12-26T05:05:40.952825Z") },
+      ],
     });
     expect(JSON.stringify(snapshot)).not.toContain("sentinel");
   });
@@ -360,6 +368,6 @@ describe("fetchCodexUsage", () => {
     const snapshot = await fetchCodexUsage({ source, userAgent: "usage-portal/test", now: () => CAPTURED });
 
     expect(snapshot.windows).toHaveLength(1);
-    expect(snapshot.resetCredits).toEqual({ available: 2, expiries: null });
+    expect(snapshot.resetCredits).toEqual({ available: 2, details: null });
   });
 });
