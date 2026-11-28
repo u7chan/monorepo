@@ -2,7 +2,7 @@
 
 モノレポの `projects/usage-portal`。リポジトリ共通の規約は [ルートの AGENTS.md](../../AGENTS.md) を参照する。
 
-Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）の利用枠を 1 ページで見るダッシュボード。自宅 LAN または VPN の内側で動かす。
+Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）・Gemini（Google AI / Antigravity）の利用枠を 1 ページで見るダッシュボード。自宅 LAN または VPN の内側で動かす。
 利用枠の表示に加えて、設定したときだけ固定の最小プロンプトを 1 回送る操作（Codex の 5 時間窓の開始と
 OpenCode Go の接続確認）を持つ。
 
@@ -24,7 +24,8 @@ OpenCode Go の接続確認）を持つ。
 - Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）。
 - OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/opencode-integration.md](docs/adr/opencode-integration.md)）。
 - Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。5 時間窓の開始予約は `src/server/claude/start.ts`（timer・送信前後の確認・失敗の数え方）と `start-prompt.ts`（固定の 1 文の送信と `api_error_status` の分類）で、時刻の計算は `src/shared/claude-start.ts` を画面と共有する。設定と履歴は SQLite の `claude_start` / `claude_start_run`（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。カードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」に手順と「接続を確認」（manual と同じ）を置く。`POST /api/claude/logout` は `claude auth logout` を CLI で実行し、世代番号で進行中の取得の書き戻しを止めてから snapshot と error を消す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
-- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義は v1 のまま（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）。`user_version` は取得間隔（v2）と Claude の開始予約（v3）のテーブルを足して 3。Claude の利用枠も既存のテーブルへ追記する。Codex のサインアウトと Claude のログアウトは snapshot と error だけを消し、sample は再サインイン用に残す。
+- Gemini の利用枠は `src/server/gemini/` と `src/server/providers/gemini.ts`。公式 `agy`（Antigravity CLI）を子プロセスで起動し、`agy models` で接続を判定してから `agy -p "/usage" --output-format json` の `command.data.groups[].buckets[]` だけを読む（未接続のまま `/usage` を起動すると OAuth 待ちで固まるため、`/usage` は connected のときだけ）。Claude と同じく sampler には乗せず、`POST /api/gemini/refresh` の auto（前回の試行から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/gemini-integration.md](docs/adr/gemini-integration.md)）。読む bucket は `gemini-` で始まるものだけで、`5h` を rolling、`weekly` を weekly の窓に固定し、同じ window は使用率の高い 1 本に畳む（`3p-*` は読まない）。子プロセスへ渡す環境変数は `PATH` / `HOME`（`CREDENTIAL_DIR/antigravity`）/ `TZ` / `AGY_CLI_DISABLE_AUTO_UPDATE` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・stderr・OAuth の URL・メール・bucket の `name` / `description` は保存もログもせず、token は読まない・保存しない・送信しない。サインインは Web UI で中継せず、端末から `docker exec -it -e HOME=/app/credentials/antigravity <コンテナ名> agy` を実行する（`bun run dev` では `HOME="$PWD/credentials/antigravity" agy`）。`POST /api/gemini/logout` だけは token を読まずに削除する例外で、世代番号で進行中の取得を止めたうえでその取得を待ち（Claude は待たない）、削除後に `agy models` で未接続を確かめてから snapshot と error を消す（接続が残れば 409 `logout_incomplete`、確認できなければ 503 `logout_failed`、応答は最大 45 秒）。カードを出すかの判定とカード・全体メニュー共通の文言は `src/client/lib/gemini.ts`。周期取得の無い provider（`claude` / `gemini`）の判定は `src/shared/on-demand.ts` の 1 か所を server と client が使う。
+- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude` / `gemini`）を持つ。テーブル定義は v1 のまま（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）。`user_version` は取得間隔（v2）、Claude の開始予約（v3）、Claude のリセット枠（v4）のテーブルを足して 4。Claude と Gemini の利用枠も既存のテーブルへ追記する。Codex のサインアウトと Claude・Gemini のログアウトは snapshot と error だけを消し、sample は再サインイン用に残す。
 - 送信（5 時間窓の開始・接続確認）は `src/server/probe/`。エージェントは使わず、`@earendil-works/pi-ai` の
   `openaiCodexProvider()` / `opencodeGoProvider()` を直接呼ぶ。Codex の access token は `CodexAuth.credential()`
   から取り、`auth.json` は解析しない（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）。
@@ -32,7 +33,7 @@ OpenCode Go の接続確認）を持つ。
 - 送信で扱うのは status・`stopReason`・latency・固定のエラーコードだけ。プロンプトはサーバ側の固定 1 文で、
   応答本文・上流のエラー文は保存もログもせず、クライアントにも返さない。
 - `@earendil-works/pi-*` は u7agent と同じバージョンに固定する。マイナーでも破壊変更が入るため、Dependabot の自動更新には乗せず、migration とセットで手動更新する。
-- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。Claude のカードを出すかの判定と、カード・全体メニューで共通の文言は `src/client/lib/claude.ts` に置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。provider のロゴは HWC と同じ形で `src/client/lib/provider-icon.ts` に持ち、商標の表示を `THIRD_PARTY_NOTICES.txt` に置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。色は HWC のブランド色を当て、契約が無い・切れた・枠を使い切ったカードだけ灰色にする。
+- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。Claude のカードを出すかの判定と、カード・全体メニューで共通の文言は `src/client/lib/claude.ts` に置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。provider のロゴは HWC と同じ形で `src/client/lib/provider-icon.ts` に持ち（HWC に無い Gemini だけ dashboard-icons の `google-gemini` の輪郭を単色で描く）、商標の表示と配布元（Apache-2.0）の全文を `THIRD_PARTY_NOTICES.txt` に置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。色は HWC のブランド色を当て、契約が無い・切れた・枠を使い切ったカードだけ灰色にする。
 - `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は docs/adr/ にまとめる。
 
 ## アーキテクチャの決定
@@ -70,6 +71,8 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
   実資格情報とネットワークは使わない。CLI の出力本文が DB・ログ・応答に残らないことも確かめる。
 - 送信の契約は、`streamSimple` だけを差し替えた偽 provider と偽 `fetch` で固定する（status の丸め・stream の終端・
   single-flight・timeout 後の解放・kick の有無）。実資格情報は使わない。
+- Gemini の adapter は、実機（agy）の `/usage` の JSON を写した fixture（`gemini-*` と `3p-*` の混在・同じ window の複数 bucket・epoch / 読めない `reset_time`・`remaining_fraction` の 0 / 1 / 範囲外 / 欠落・未知の `window`）で固定する。
+  接続の判定は `agy models` の exit code と stderr の文言で固定し、子プロセスは偽の spawn と短命の実プロセスで、環境変数・cwd・期限・single-flight・15 分 / 60 秒の制限・ログアウトの直列化（0000 の token を含む）を固定する。実資格情報とネットワークは使わない。
 - Codex のサインインは SDK を差し替えた状態機械としてテストする（`select` / `manual_code` / 中断 / 10 分の期限 / 生の文言を返さないこと）。
 - DOM テストは書かない。見た目はブラウザで確認する。
 - lint と typecheck が保証する内容を unit test で重複して固定しない。
@@ -82,5 +85,5 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタックと取得方式、認証と公開範囲、利用枠の保存と窓の扱い、provider のマーク、OpenCode Go・Codex・Claude との連携、稼働状況の参照先
+- [docs/adr/](docs/adr) — スタックと取得方式、認証と公開範囲、利用枠の保存と窓の扱い、provider のマーク、OpenCode Go・Codex・Claude・Gemini との連携、稼働状況の参照先
 - ADR はトピックごとの 1 ファイルにまとめる。新しい論点は既存ファイルに追記できないか先に検討し、ファイルを足すときも番号は振らない。

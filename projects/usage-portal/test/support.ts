@@ -1,6 +1,7 @@
 import type { AppDeps } from "../src/server/app";
 import type { ClaudeRefreshMode, ClaudeRefreshResult, ClaudeResetCreditsResult } from "../src/server/claude/service";
 import type { CodexApi } from "../src/server/codex/api";
+import type { GeminiLogoutResult, GeminiRefreshMode, GeminiRefreshResult } from "../src/server/gemini/service";
 import type { OpenCodeAccount } from "../src/server/opencode/accounts";
 import type { OpenCodeApi } from "../src/server/opencode/api";
 import type { ProbeApi } from "../src/server/probe/api";
@@ -52,6 +53,20 @@ export function stubClaudeApi(overrides: Partial<StubClaudeApi> = {}): StubClaud
     refresh: async () => ({ state: "skipped", reason: "fresh" }),
     resetCredits: async () => ({ state: "refreshed" }),
     logout: async () => true,
+    ...overrides,
+  };
+}
+
+/** 認証だけを試すテスト用。Gemini の取得は呼ばれたら記録だけする。 */
+export type StubGeminiApi = {
+  refresh: (mode: GeminiRefreshMode) => Promise<GeminiRefreshResult>;
+  logout: () => Promise<GeminiLogoutResult>;
+};
+
+export function stubGeminiApi(overrides: Partial<StubGeminiApi> = {}): StubGeminiApi {
+  return {
+    refresh: async () => ({ state: "skipped", reason: "fresh" }),
+    logout: async () => "done",
     ...overrides,
   };
 }

@@ -18,6 +18,7 @@ import {
   stubClaudeApi,
   stubClaudeStart,
   stubCodexApi,
+  stubGeminiApi,
   stubOpenCodeApi,
   stubFetchIntervals,
 } from "./support";
@@ -99,6 +100,7 @@ function harness(
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
     claudeStart: stubClaudeStart(),
+    gemini: stubGeminiApi(),
     opencode: stubOpenCodeApi({ list: () => ids.map((id) => stubAccount({ id })) }),
     probe,
     fetchIntervals: stubFetchIntervals(),

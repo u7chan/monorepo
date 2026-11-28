@@ -16,7 +16,7 @@ export const ATTENTION_THRESHOLD = 80;
 
 export type StatusInput = {
   /** account の uuid ではなく provider で分岐する。0 件のときに opencode の行は作られない。 */
-  provider: "codex" | "opencode-go" | "claude";
+  provider: "codex" | "opencode-go" | "claude" | "gemini";
   state: "loading" | "ok" | "stale" | "error";
   errorCode: string | null;
   limitReached: boolean;

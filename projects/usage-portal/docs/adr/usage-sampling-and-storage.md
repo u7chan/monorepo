@@ -5,10 +5,10 @@
 
 ## 背景
 
-Codex・OpenCode Go・Claude は、どれも利用枠を返すが形が違う。Codex は `rate_limit.primary_window` /
+Codex・OpenCode Go・Claude・Gemini は、どれも利用枠を返すが形が違う。Codex は `rate_limit.primary_window` /
 `secondary_window` に `used_percent` と `limit_window_seconds` を持ち、窓の意味は期間から決まる。
 OpenCode Go は `usage.rolling` / `weekly` / `monthly` を固定で持ち、`resetsAt` は ISO 8601 で返る。
-Claude は公式 CLI の出力から読む。どれもこの用途向けの公開契約ではなく、窓が欠けることがある。
+Claude と Gemini は公式 CLI の出力から読む。どれもこの用途向けの公開契約ではなく、窓が欠けることがある。
 
 画面は「返ってきた窓だけ」を出し、取得できなかった provider は前回の値を残す。推移も出す。
 
@@ -22,6 +22,9 @@ Claude は公式 CLI の出力から読む。どれもこの用途向けの公�
 - Codex の窓は `limit_window_seconds` で種類を決める（6 時間以下は rolling、8 日以下は weekly、それ以上は monthly）。
   読めない値は rolling に寄せる。percent を読めた窓だけを `windows` に入れ、1 つも無ければ `schema` エラーにする。
 - OpenCode Go の 3 窓は、API が返したものだけを出す。`status` が `ok` 以外なら上限到達と注記に反映する。
+- Gemini は `/usage` の `gemini-*` の bucket だけを読み、`5h` を rolling、`weekly` を weekly に固定する。同じ window の
+  bucket が複数あれば使用率の高い 1 本に畳み、`reset_time` が読めない・epoch でも窓は残して `resetsAt` を null にする
+  （docs/adr/gemini-integration.md）。
 - `usedPercent` は 0〜100 に clamp し、100 を超えたら「上限超過」を `notes` に出す。0% は欠損として落とさない。
 - provider は並列に取得し、片方の失敗が他方を壊さない。失敗時は `provider_error` を upsert するだけで
   snapshot は保持する。成功時は snapshot の upsert、窓ごとの sample 追記、error の削除を 1 transaction で行う。
@@ -31,8 +34,8 @@ Claude は公式 CLI の出力から読む。どれもこの用途向けの公�
 
 - 取得は source 単位の single-flight とし、起動時と 60 秒ごとの tick で「予定を過ぎた source」だけを取る。
   source ごとに `nextDueAt` を持ち、1 つの provider の遅い取得が別の provider の予定を遅らせない。
-- 取得間隔は sampler に乗る provider（`codex` / `opencode-go`）ごとに設定する。Claude は周期取得を持たないため
-  対象外。画面から選べる値は 5 / 10 / 30 / 60 / 120 分の 5 つに固定し、既定は 10 分。サーバーはホワイトリストで
+- 取得間隔は sampler に乗る provider（`codex` / `opencode-go`）ごとに設定する。Claude と Gemini は周期取得を
+  持たないため対象外（固定の 15 分）。画面から選べる値は 5 / 10 / 30 / 60 / 120 分の 5 つに固定し、既定は 10 分。サーバーはホワイトリストで
   検証し、一覧に無い値は 400 で拒否する。保存先は SQLite（schema v2 の `fetch_interval`）。
 - `POLL_INTERVAL_MS` は、画面から設定していない provider の既定値に降格する。優先順位は
   保存値 > env > 10 分。env の下限 1 分は運用者の明示指定として残す。
@@ -44,7 +47,7 @@ Claude は公式 CLI の出力から読む。どれもこの用途向けの公�
 ### 状態と推移
 
 - `state` は snapshot と error から決める。snapshot が無ければ `loading` / `error`、error があれば `stale`、
-  取得からの経過が provider の閾値（既定は間隔の 2 倍、Claude は 15 分）を超えても `stale`、それ以外は `ok`。
+  取得からの経過が provider の閾値（既定は間隔の 2 倍、Claude と Gemini は 15 分）を超えても `stale`、それ以外は `ok`。
 - 推移は窓ごとに返す。窓の期間ぶんの sample を `max(5 分, 履歴の範囲 / 48)` の bucket に間引き、各 bucket は
   平均ではなく最新の sample を代表点にする（リセットをまたぐ平均は実在しない値になるため）。表示は最大 48 点とし、
   2 点未満なら描かない。リセットは間引き前の sample で検出して別に返す。
@@ -55,6 +58,7 @@ Claude は公式 CLI の出力から読む。どれもこの用途向けの公�
   - Codex: 未接続時は `codex`、サインイン済みは `codex:<chatgpt account id>`
   - OpenCode Go: `opencode-go:<account uuid>`
   - Claude: `claude`
+  - Gemini: `gemini`
 - DB の関数は provider id ではなく source id（`string`）を受ける。snapshot JSON の中の
   `ProviderSnapshot.provider` は provider id のまま。この対応は `db.ts` のコメントに残す。
 - Codex の accountId は `auth.json` から読み、DB の `provider` 列（履歴のキー）にだけ入れる。
@@ -95,8 +99,9 @@ Claude は公式 CLI の出力から読む。どれもこの用途向けの公�
 
 ## 影響
 
-- `bun:sqlite` の `user_version` で schema を管理する。現在は v3（v1 で snapshot / error / sample、
-  v2 で `fetch_interval`、v3 で Claude の開始予約）。
+- `bun:sqlite` の `user_version` で schema を管理する。現在は v4（v1 で snapshot / error / sample、
+  v2 で `fetch_interval`、v3 で Claude の開始予約、v4 で Claude のリセット枠）。Gemini は既存のテーブルへ
+  source id `gemini` で追記するだけで、schema は変えない。
 - `src/server/sampler.ts` は `intervalFor(provider)` を受け取り、tick / nextFetchAt / reschedule / kick /
   exclusive を公開する。`kick` と `exclusive` は provider を指定できる。
 - 5 分より長い間隔では推移の点が減り、リセット線を取りこぼしやすくなる。必要な場合は Codex を 60 分以下にする。

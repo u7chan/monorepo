@@ -14,8 +14,10 @@
   --up-success: #15803d;
 
   /* provider のマークだけに使うブランド色。地の色や文字色には使わない。
-     Claude は HWC の既定テーマの値。Codex と OpenCode は本家がモノクロなので、暗い地で濃さを反転する。 */
+     Claude は HWC の既定テーマの値。Gemini は Google の青で、暗い地では明るい青へ寄せる。
+     Codex と OpenCode は本家がモノクロなので、暗い地で濃さを反転する。 */
   --up-mark-claude: #c15f3c;
+  --up-mark-gemini: #3186ff;
   --up-mark-codex: #000000;
   --up-mark-opencode: #1f1f1f;
   --up-mark-opencode-shade: 0.2;
@@ -55,6 +57,7 @@
     --up-danger: #f87171;
     --up-success: #6fd08c;
     --up-mark-claude: #e08a68;
+    --up-mark-gemini: #8ab4f8;
     --up-mark-codex: #ffffff;
     --up-mark-opencode: #eeeeee;
     --up-mark-opencode-shade: 0.28;
@@ -410,6 +413,11 @@ h2 {
 .up-provider-icon[data-provider="claude"][data-mark="brand"],
 .up-menu-item-icon[data-provider="claude"] {
   color: var(--up-mark-claude);
+}
+
+.up-provider-icon[data-provider="gemini"][data-mark="brand"],
+.up-menu-item-icon[data-provider="gemini"] {
+  color: var(--up-mark-gemini);
 }
 
 .up-provider-icon[data-provider="opencode-go"][data-mark="brand"],
@@ -782,7 +790,8 @@ h2 {
 
 .up-codex,
 .up-opencode,
-.up-claude {
+.up-claude,
+.up-gemini {
   display: flex;
   flex-direction: column;
   gap: var(--up-space-2);
@@ -790,14 +799,16 @@ h2 {
   border-top: 1px solid var(--up-line);
 }
 
-.up-claude-command {
+.up-claude-command,
+.up-gemini-command {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--up-space-2);
 }
 
-.up-claude-command .up-code-string {
+.up-claude-command .up-code-string,
+.up-gemini-command .up-code-string {
   word-break: break-all;
   letter-spacing: 0;
 }

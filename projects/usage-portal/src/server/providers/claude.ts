@@ -1,4 +1,5 @@
 import { ClaudeCliError, type ClaudeCli } from "../claude/cli";
+import { ON_DEMAND_REFRESH_INTERVAL_MS } from "../../shared/on-demand";
 import {
   ProviderError,
   WINDOW_LABELS,
@@ -10,7 +11,7 @@ import {
 
 export const CLAUDE_NAME = "Claude";
 /** 取得からこの時間を過ぎたら stale。画面を開いたときの自動取得もこの間隔を空ける。 */
-export const CLAUDE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+export const CLAUDE_REFRESH_INTERVAL_MS = ON_DEMAND_REFRESH_INTERVAL_MS;
 
 /** `/usage` はモデルを呼ばず、セッションも残さない。 */
 export const CLAUDE_USAGE_ARGS: readonly string[] = [

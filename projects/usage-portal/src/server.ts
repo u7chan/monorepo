@@ -8,6 +8,8 @@ import { sendClaudeStart } from "./server/claude/start-prompt";
 import { createCodexApi } from "./server/codex/api";
 import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
+import { createGeminiCli } from "./server/gemini/cli";
+import { createGeminiUsageService } from "./server/gemini/service";
 import { createFetchIntervalStore } from "./server/fetch-intervals";
 import { codexSourceId } from "./server/codex/source";
 import { loadConfig } from "./server/config";
@@ -27,8 +29,8 @@ import { createProbeApi } from "./server/probe/api";
 import { createProbeRunner } from "./server/probe/service";
 import { createProbeSettings } from "./server/probe/settings";
 import { fetchIntervalMs } from "./shared/fetch-interval";
+import { isOnDemandProvider, ON_DEMAND_REFRESH_INTERVAL_MS } from "./shared/on-demand";
 import { CLAUDE_PROVIDER, CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
-import { CLAUDE_REFRESH_INTERVAL_MS } from "./server/providers/claude";
 import type { ProviderId } from "./server/providers/types";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
@@ -130,9 +132,9 @@ const fetchers = (): UsageFetcher[] => {
 };
 // env の POLL_INTERVAL_MS は、画面から設定していない provider の既定値として使う。
 const fetchIntervals = createFetchIntervalStore({ db: database, defaultMs: config.pollIntervalMs, log });
-// 画面から設定できるのは Codex と OpenCode Go だけ。Claude は周期取得をせず、固定値を使う。
+// 画面から設定できるのは Codex と OpenCode Go だけ。Claude と Gemini は周期取得をせず、固定値を使う。
 const intervalFor = (provider: ProviderId): number =>
-  provider === "claude" ? CLAUDE_REFRESH_INTERVAL_MS : fetchIntervals.get(provider);
+  isOnDemandProvider(provider) ? ON_DEMAND_REFRESH_INTERVAL_MS : fetchIntervals.get(provider);
 const sampler = createSampler({
   db: database,
   fetchers,
@@ -146,6 +148,13 @@ const claude = createClaudeUsageService({
   cli: createClaudeCli({ credentialDir: config.credentialDir, env: process.env }),
   credentialDir: config.credentialDir,
   userAgent,
+  now: Date.now,
+  log,
+});
+const gemini = createGeminiUsageService({
+  db: database,
+  cli: createGeminiCli({ credentialDir: config.credentialDir, env: process.env }),
+  credentialDir: config.credentialDir,
   now: Date.now,
   log,
 });
@@ -201,6 +210,7 @@ const app = createApp({
     },
   },
   claudeStart,
+  gemini,
   probe,
   fetchIntervals: {
     read: () => fetchIntervals.list(),
@@ -251,6 +261,7 @@ console.log(
 console.log(`Codex: ${codexAuth.signedIn() ? "サインイン済み" : "未接続"}`);
 console.log(`OpenCode Go: ${accountCount === 0 ? "アカウント未登録" : `アカウント ${accountCount} 件`}`);
 console.log("Claude: 画面を開いたときと手動更新で取得します（開始予約は設定したときだけ送信します）");
+console.log("Gemini: 画面を開いたときと手動更新で取得します（周期取得と送信はしません）");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
