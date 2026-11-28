@@ -246,6 +246,8 @@ export interface CloudflaredLauncherOptions extends CloudflaredEnvironment {
   readRecordFile?: (path: string) => Promise<string>;
   /** テスト用の差し替え。既定は fs の readdir (一覧の読み取り失敗を注入する) */
   readStateDir?: (path: string) => Promise<string[]>;
+  /** テスト用の差し替え。既定は fs の stat (HOME の観測失敗を注入する) */
+  statPath?: typeof stat;
   /** テスト用の差し替え。既定は fs の mkdir (書き込みの遅れを注入する) */
   mkdir?: typeof mkdir;
   /** テスト用の差し替え。既定は flock の取得 */
@@ -664,6 +666,7 @@ interface SweepContext {
   lockHeld: (path: string) => Promise<"held" | "free" | "unknown">;
   readText: (path: string) => Promise<string>;
   readDir: (path: string) => Promise<string[]>;
+  statPath: typeof stat;
   waitMs: number;
 }
 
@@ -697,21 +700,31 @@ async function sweepStateDir(ctx: SweepContext): Promise<CloudflaredSweepReport>
       keep.add(home);
       continue;
     }
-    // 中身が読めても、起動元のロックが生きている・確かめられないうちは、記録も HOME も触らない。
-    // HOME が無ければロックも無いので、残っている記録だけを消す
-    const homeExists = await stat(join(stateDir, home)).then(
-      () => true,
-      () => false,
-    );
-    const held = homeExists ? await ctx.lockHeld(join(stateDir, home, "launch.lock")) : "free";
+    // 中身の home は信じない。他の場所を cwd に持つ子を指せてしまう
+    const record = read.kind === "ok" && read.record.home === home ? read.record : undefined;
+    // 読める正規の記録は、まず書いた BFF の生存を見る。生きていればロックを試さない（起動中のロック取得と競合させない）
+    if (record && (await ownerIsAlive(record.owner, readProcess))) {
+      keep.add(home);
+      continue;
+    }
+    // HOME の観測。不在だけを「ロックも無い」とし、読めないときは記録も HOME も残す
+    let homeState: "present" | "absent" | "unknown";
+    try {
+      await ctx.statPath(join(stateDir, home));
+      homeState = "present";
+    } catch (error) {
+      homeState = (error as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unknown";
+    }
+    if (homeState === "unknown") {
+      keep.add(home);
+      continue;
+    }
+    const held = homeState === "present" ? await ctx.lockHeld(join(stateDir, home, "launch.lock")) : "free";
     if (held !== "free") {
       keep.add(home);
       continue;
     }
-    // 中身の home は信じない。他の場所を cwd に持つ子を指せてしまう
-    const record = read.kind === "ok" && read.record.home === home ? read.record : undefined;
-    if (record && (await ownerIsAlive(record.owner, readProcess))) keep.add(home);
-    else orphaned.push({ path, home, record });
+    orphaned.push({ path, home, record });
   }
 
   for (const { path, home, record } of orphaned) {
@@ -792,6 +805,7 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
   const lockHeld = options.lockHeld ?? fileLockHeld;
   const readText = options.readRecordFile ?? ((path: string) => readFile(path, "utf8"));
   const readDir = options.readStateDir ?? readdir;
+  const statPath = options.statPath ?? stat;
   const makeDir = options.mkdir ?? mkdir;
   const takeLock = options.acquireLock ?? acquireFileLock;
   const writeRecordText =
@@ -820,6 +834,7 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
           lockHeld,
           readText,
           readDir,
+          statPath,
           waitMs: sweepTermWaitMs,
         });
         if (report.killed > 0) log(`tunnel: stopped ${report.killed} leftover cloudflared process(es)`);
@@ -844,7 +859,8 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
     // 期限は launch() からの 1 本。単調時計で見る (壁時計の調整で伸び縮みさせない)
     const deadlineAt = performance.now() + deadlineMs;
     const expired = (): boolean => performance.now() >= deadlineAt;
-    const stopOrDeadline = AbortSignal.any([abort.signal, AbortSignal.timeout(deadlineMs)]);
+    const deadlineSignal = AbortSignal.timeout(deadlineMs);
+    const stopOrDeadline = AbortSignal.any([abort.signal, deadlineSignal]);
     const exitAbort = new AbortController();
     const probeSignal = AbortSignal.any([stopOrDeadline, exitAbort.signal]);
     const ready = deferred<{ url: string }>();
@@ -866,6 +882,8 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
     let recordPath: string | undefined;
     let launchLock: FileLock | undefined;
     let terminating: Promise<void> | undefined;
+    // ready が解決したら起動の期限は役目を終える。以後は明示的な stop() だけが子を止める
+    let launched = false;
 
     const tail = (lines: readonly string[]): string => maskTunnelHostnames(lines.slice(-TAIL_LINES).join("\n"));
     const failure = (kind: CloudflaredFailureKind): CloudflaredLaunchError =>
@@ -1000,6 +1018,8 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
         : { state: "unknown" as const };
       if (childReading.state !== "present") {
         // 起動時刻まで確定できない子は成功にも送信にも使わない。記録は pendingChild のまま残す
+        // exit を受けていれば、その出力から失敗を分類する (429 や接続失敗を proc_unavailable に潰さない)
+        if (gone) throw await exitFailure();
         throw new CloudflaredLaunchError("unavailable", "", "proc_unavailable");
       }
       await writeRecord(
@@ -1085,9 +1105,21 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
       liveRuns.delete(live);
     }
 
-    // 記録の rename が詰まっていても、停止・期限では子へ先に TERM を送る
-    if (stopOrDeadline.aborted) void terminateChild();
-    else stopOrDeadline.addEventListener("abort", () => void terminateChild(), { once: true });
+    // 記録の rename が詰まっていても、停止では子へ先に TERM を送る
+    if (abort.signal.aborted) void terminateChild();
+    else abort.signal.addEventListener("abort", () => void terminateChild(), { once: true });
+    // 起動期限は ready の確定まで。起動済みの共有を 30 秒後に止めない
+    if (deadlineSignal.aborted) {
+      if (!launched) void terminateChild();
+    } else {
+      deadlineSignal.addEventListener(
+        "abort",
+        () => {
+          if (!launched) void terminateChild();
+        },
+        { once: true },
+      );
+    }
 
     const done = (async () => {
       try {
@@ -1099,6 +1131,7 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
         const url = await waitUntilReady(metricsPort);
         // 応答を採る直後にも、期限と停止を見る
         throwIfStopped();
+        launched = true;
         ready.resolve({ url });
         await Promise.race([childGone.promise, aborted]);
         if (gone && !stopRequested && !selfKilled) {

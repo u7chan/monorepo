@@ -569,6 +569,28 @@ test("起動元のロックを取れないときは、子を起こさず unavail
   }
 });
 
+test("exit を受けている子を gone と観測したら、出力から失敗を分類する", async () => {
+  const h = await createHarness();
+  try {
+    h.behavior.childIdentity = "gone";
+    h.behavior.onSpawn = (call) => {
+      setImmediate(() => {
+        call.child.writeLog(PROVISIONING_REJECTED_LOG);
+        call.child.exitOnly(1);
+        call.child.closeAfterExit(1);
+      });
+    };
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "rejected",
+    );
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("子を gone と観測したら、loopback が 200 でも ready にしない", async () => {
   const h = await createHarness({
     readProcess: async (pid) =>
@@ -994,6 +1016,29 @@ test("掃除の観測が期限を超えたら、待ち続けずに timeout に�
     );
     assert.ok(Date.now() - started < 1000, "掃除の完了を待たない");
     assert.equal(h.calls.length, 0, "期限のあとに子を起こさない");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("ready のあとは、起動期限が来ても子を止めない", async () => {
+  const h = await createHarness({ deadlineMs: 200 });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    const handle = h.launch();
+    await handle.ready;
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+
+    await sleep(350);
+    assert.deepEqual(child.signals, [], "起動済みの共有を期限で止めない");
+    assert.equal((await readdir(h.stateDir)).length, 2, "記録も HOME も残す");
+    assert.equal(await isPending(handle.exited, 50), true);
+
+    await handle.stop();
+    assert.deepEqual(child.signals, ["SIGTERM"]);
+    await waitFor(async () => (await readdir(h.stateDir)).length === 0, "明示的な停止で片付ける");
   } finally {
     await h.dispose();
   }

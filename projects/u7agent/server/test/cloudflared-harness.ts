@@ -135,6 +135,8 @@ export interface Harness {
     listenerOwner?: "yes" | "no" | "unknown";
     /** 子ができた直後に呼ぶ (出力や終了を仕込む) */
     onSpawn?: (call: SpawnCall) => void;
+    /** 子の /proc 観測。既定は present */
+    childIdentity?: "present" | "gone" | "unknown";
     /** spawn に失敗した子 (`error` が出て終わる) を返す */
     spawnError?: Error;
   };
@@ -246,6 +248,9 @@ export async function createHarness(
 
   const readProcess = async (pid: number): Promise<ProcessReading> => {
     const call = calls.find((entry) => entry.child.pid === pid);
+    if (call && harness.behavior.childIdentity && harness.behavior.childIdentity !== "present") {
+      return { state: harness.behavior.childIdentity };
+    }
     return call
       ? {
           state: "present",

@@ -2,8 +2,9 @@
 // プロセスの観測とシグナルはメモリ上の表で差し替え、実プロセスは起こさない。一致しないときに殺さないことを主に見る。
 
 import assert from "node:assert/strict";
+import type { PathLike } from "node:fs";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -351,6 +352,51 @@ test("起動時刻が未確定の記録は送らず、記録と専用 HOME を�
     assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 1, removedRecords: 0, removedHomes: 0 });
     assert.deepEqual(f.procs.signals, [], "起動時刻を確かめられない子へ送らない");
     assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("HOME の観測が EIO のときは、ロック保持中の記録を消さない", async () => {
+  let lockCalls = 0;
+  const f = await createFixture({
+    lockHeld: async () => {
+      lockCalls += 1;
+      return "held";
+    },
+    statPath: (async (path: PathLike) => {
+      if (String(path).endsWith(HOME)) throw Object.assign(new Error("EIO"), { code: "EIO" });
+      return stat(path);
+    }) as typeof stat,
+  });
+  try {
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, { version: 2 });
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.equal(lockCalls, 0, "観測できない HOME ではロックも試さない");
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("正規の記録で書いた BFF が生きていれば、ロックを試さない", async () => {
+  let lockCalls = 0;
+  const f = await createFixture({
+    lockHeld: async () => {
+      lockCalls += 1;
+      return "free";
+    },
+  });
+  try {
+    const reading = f.genuine(5001, HOME);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, record(LIVE_OWNER, HOME, identity(5001, reading)));
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.equal(lockCalls, 0, "起動中のロック取得と競合させない");
   } finally {
     await f.cleanup();
   }
