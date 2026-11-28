@@ -1,0 +1,248 @@
+# usage-portal の image に入れる Claude Code CLI は、Dependabot が追えない経路（`FROM` 行を持たず
+# downloads.claude.ai から版固定で直接取る）で固定している。stable チャネルの版を週次で見張り、
+# 新しい版があれば Dockerfile の版を上げる PR を作る。マージは人間。
+# CLI の出力文言は CI では確かめられない（資格情報が要る）ため、fixture の再確認は PR 本文のチェックリストで求める。
+name: Claude CLI version check
+
+on:
+  schedule:
+    # 毎週月曜 06:00 JST
+    - cron: "0 21 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # docker build で約 370 MB のバイナリを取得する
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Compare the pinned version with the stable channel
+        id: compare
+        run: |
+          set -euo pipefail
+
+          current="$(grep -oP '^ARG CLAUDE_CODE_VERSION="\K[^"]+' projects/usage-portal/Dockerfile)"
+          stable="$(curl -fsS https://downloads.claude.ai/claude-code-releases/stable | tr -d '[:space:]')"
+
+          if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$stable"; then
+            echo "::error::stable チャネルの版を読めませんでした: $stable"
+            exit 1
+          fi
+
+          echo "pinned=$current stable=$stable"
+          # 固定版が stable より進んでいることがある（stable は遅れて追いつく）。下げる提案はしない。
+          newest="$(printf '%s\n%s\n' "$current" "$stable" | sort -V | tail -n1)"
+
+          if [ "$newest" = "$stable" ] && [ "$current" != "$stable" ]; then
+            update=true
+          else
+            update=false
+          fi
+
+          {
+            echo "current=$current"
+            echo "stable=$stable"
+            echo "update=$update"
+            echo "version=$stable"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Look for an existing pull request
+        id: existing
+        if: steps.compare.outputs.update == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: chore/claude-cli-${{ steps.compare.outputs.version }}
+          BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+
+          # open だけでなく close 済みも見る。一度見送った版を毎週作り直さないため。
+          count="$(gh pr list --head "$BRANCH" --state all --json number --jq 'length')"
+
+          if [ "$count" != "0" ]; then
+            echo "::notice::$BRANCH の PR が既にあるため作成しません"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # PR が無いのにブランチだけある = 前回 push のあとで PR 作成が失敗した残骸。
+          # そのまま push すると non-fast-forward で毎週失敗するので、workflow 自身のコミットなら作り直す。
+          # `ls-remote` のパターンは ref の末尾で照合されるため、refs/heads まで含めて完全一致させる。
+          remote_sha="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "reuse=false" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$remote_sha" ]; then
+            exit 0
+          fi
+
+          # 人が push したブランチは上書きしない。手で版を上げている途中なら、そちらが正になる。
+          author="$(gh api "repos/$GITHUB_REPOSITORY/commits/$remote_sha" --jq '.commit.author.email')"
+
+          if [ "$author" != "$BOT_EMAIL" ]; then
+            echo "::notice::$BRANCH は人が push したブランチのため触りません（author: $author）"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::$BRANCH は PR の無いまま残っているため作り直します（remote: $remote_sha）"
+          echo "reuse=true" >> "$GITHUB_OUTPUT"
+          echo "remote_sha=$remote_sha" >> "$GITHUB_OUTPUT"
+
+      # 版を上げる前に、両アーキテクチャのバイナリが公開済みかを見る。片方だけの公開中に上げると、
+      # 別アーキテクチャのホストでビルドしたときに初めて落ちる。
+      - name: Check the release manifest
+        if: steps.compare.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.compare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          manifest="$(curl -fsS "https://downloads.claude.ai/claude-code-releases/$VERSION/manifest.json")"
+
+          for platform in linux-x64 linux-arm64; do
+            checksum="$(jq -r --arg platform "$platform" '.platforms[$platform].checksum // empty' <<<"$manifest")"
+
+            if [ -z "$checksum" ]; then
+              echo "::error::$VERSION の manifest に $platform のバイナリがありません"
+              exit 1
+            fi
+
+            echo "$platform: $checksum"
+          done
+
+      - name: Bump CLAUDE_CODE_VERSION
+        if: steps.compare.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        env:
+          CURRENT: ${{ steps.compare.outputs.current }}
+          VERSION: ${{ steps.compare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          sed -i "s/^ARG CLAUDE_CODE_VERSION=\"$CURRENT\"$/ARG CLAUDE_CODE_VERSION=\"$VERSION\"/" \
+            projects/usage-portal/Dockerfile
+          grep -qx "ARG CLAUDE_CODE_VERSION=\"$VERSION\"" projects/usage-portal/Dockerfile
+          git diff --stat
+
+      # final と同じ手順（checksum 検証と `--version`）を通す。ここまでで壊れていれば PR を作らない。
+      - name: Build the claude-cli stage
+        if: steps.compare.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        run: docker build --progress plain --target claude-cli ./projects/usage-portal
+
+      - name: Open a pull request
+        if: steps.compare.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT: ${{ steps.compare.outputs.current }}
+          VERSION: ${{ steps.compare.outputs.version }}
+          REUSE: ${{ steps.existing.outputs.reuse }}
+          REMOTE_SHA: ${{ steps.existing.outputs.remote_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          branch="chore/claude-cli-$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add projects/usage-portal/Dockerfile
+          git commit -m "chore(usage-portal): bump Claude Code CLI to $VERSION" -m \
+            "Why: the image pins the CLI because it is shipped from downloads.claude.ai, which Dependabot cannot follow, so a weekly check is the only way to notice a new stable release."
+
+          # persist-credentials を切っているので、push のときだけ token を渡す。
+          # PR の無いまま残ったブランチは、確認した SHA を lease にして上書きする（他の push があれば失敗する）。
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          if [ "$REUSE" = "true" ]; then
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              push --force-with-lease="refs/heads/$branch:$REMOTE_SHA" origin "HEAD:refs/heads/$branch"
+          else
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              push origin "HEAD:refs/heads/$branch"
+          fi
+
+          # 本文は markdown なので、backtick を shell に評価させないよう変数は placeholder で埋める。
+          cat > /tmp/pr-body.md <<'BODY'
+          ## Issues
+
+          ## Why
+
+          `projects/usage-portal` の image に入れる Claude Code CLI は `downloads.claude.ai` から版固定で取得しており、Dependabot が追えない。stable チャネルに新しい版が出たことを週次で検知し、レビューできる PR にする。
+
+          ## Summary
+
+          stable チャネルの版が Dockerfile の固定版より新しいので上げる。次の 2 点はこの PR を作った workflow で確認済み。
+
+          - manifest に linux-x64 / linux-arm64 の checksum があること
+          - `claude-cli` ステージのビルド（checksum 検証と `claude --version`）が通ること
+
+          ## Changes
+
+          - `projects/usage-portal/Dockerfile`: `CLAUDE_CODE_VERSION` を {{CURRENT}} から {{VERSION}} へ
+
+          ## Verification
+
+          - [x] `docker build --target claude-cli ./projects/usage-portal`: {{RUN_URL}}
+          - [ ] `test/providers-claude.test.ts` の fixture を、新しい CLI の実際の出力と突き合わせ直す
+
+            ```bash
+            docker exec <コンテナ> claude -p /usage --output-format json --no-session-persistence | jq -r .result
+            docker exec <コンテナ> claude auth status --json
+            ```
+
+            出力が変わっていれば fixture と `src/server/providers/claude.ts` を直す。上がった版で CLI を入れ直すには image の再ビルドが要る。
+
+          - [ ] この PR は `GITHUB_TOKEN` で作っているため CI が自動では走らない。上の fixture を確認して、差分の有無にかかわらず 1 コミット push すると CI が走る（差分が無ければ空コミットでよい）
+          BODY
+
+          sed -i -e "s|{{CURRENT}}|$CURRENT|g" -e "s|{{VERSION}}|$VERSION|g" -e "s|{{RUN_URL}}|$RUN_URL|g" \
+            /tmp/pr-body.md
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(usage-portal): bump Claude Code CLI to $VERSION" \
+            --label dependencies \
+            --body-file /tmp/pr-body.md
+
+      - name: Write a summary
+        env:
+          UPDATE: ${{ steps.compare.outputs.update }}
+          CURRENT: ${{ steps.compare.outputs.current }}
+          STABLE: ${{ steps.compare.outputs.stable }}
+          SKIP: ${{ steps.existing.outputs.skip }}
+          REUSE: ${{ steps.existing.outputs.reuse }}
+          HELD: ${{ steps.existing.outputs.held }}
+        run: |
+          {
+            echo "### Claude CLI version check"
+            echo "- pinned: \`$CURRENT\`"
+            echo "- stable: \`$STABLE\`"
+            echo "- update: \`$UPDATE\`"
+
+            if [ "$HELD" = "true" ]; then
+              echo "- 同名ブランチが人によって push されているため、上書きせずに見送りました"
+            elif [ "$SKIP" = "true" ]; then
+              echo "- 同名ブランチの PR が既にあるため作成しませんでした"
+            fi
+
+            if [ "$REUSE" = "true" ]; then
+              echo "- PR の無いブランチが残っていたため、作り直しました"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -45,6 +45,12 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - 正規化した `ProviderSnapshot`（`provider: "claude"`、source id は `claude` 固定、plan は `subscriptionType`）と
   sample だけを既存のテーブルへ保存する。CLI の出力本文は DB・ログ・応答に残さない。
 - 公式バイナリは改変せずに image へ入れ、自動更新は止めてバージョンを固定する。版を上げるときは fixture の差分を見る。
+- 版は `stable` チャネル（`https://downloads.claude.ai/claude-code-releases/stable`）に追従する。
+  Dependabot はこの取得経路を追えないため、
+  [.github/workflows/claude-cli-version-check.yml](../../../../.github/workflows/claude-cli-version-check.yml) が週次で
+  `stable` と Dockerfile の固定版を比べ、新しい版があれば PR を作る。マージと fixture の再確認は人間が行う。
+  固定版が `stable` より進んでいるときは下げる提案をしない（`stable` は遅れて追いつく）。
+  `GITHUB_TOKEN` で PR を作るため、repository で GitHub Actions の PR 作成を許可しておく必要がある。
 
 ### リセット枠（手動取得）
 
