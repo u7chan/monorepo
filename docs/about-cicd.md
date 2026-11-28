@@ -15,7 +15,7 @@
 | 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
 | Docker の対象 | `test` と `final` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
 | レジストリへの送信 | しない | GHCR へ送信する |
-| イメージタグ | `ci-test` と `ci-final`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ。`docs` のみの push では作られない |
+| イメージタグ | `ci-test` と `ci-final`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ（`docs` のみの push では作られない） |
 
 ```mermaid
 flowchart TB
@@ -66,7 +66,7 @@ CMD ["./start.sh"]
 ```
 
 CI は `test` と `final` の両ステージを指定してビルドします。`final` は配布するイメージそのもので、`final` からしか参照しないステージ（`usage-portal` の `claude-cli` など）の検証も兼ねます。ただし、現在のビルドスクリプトは指定したステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
-一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトを送信しません。
+一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトのイメージは送信しません。
 
 自動実行の CD は変更の検出に push の差分を使いますが、ビルドするソースはジョブ開始時点の最新 `main` です。`Dockerfile` の有無と `final` ステージの判定も、checkout した最新 `main` の内容で行います。`projects` 配下の `docs` だけを変更した push では、ワークフロー自体が起動しません。
 
@@ -79,7 +79,7 @@ CI は `test` と `final` の両ステージを指定してビルドします。
 
 同じ PR で新しい実行が始まると、進行中の古い実行はキャンセルされます。
 
-外部 contributor が fork から作成した PR では、ワークフローは自動実行されず承認を待ちます。承認が必要になる範囲はリポジトリ設定の `approval_policy` で決まり、このリポジトリは `all_external_contributors` です。過去にマージされた変更がある contributor も対象になるため、fork からの PR は常に承認が必要です。自分の PR と Dependabot の PR はリポジトリ内のブランチであり、この設定の対象外です。
+外部コントリビューターが fork から作成した PR では、ワークフローは自動実行されず承認待ちになります。承認が必要になる範囲はリポジトリ設定の `approval_policy` で決まり、このリポジトリでは `all_external_contributors` を設定しています。過去にマージされた変更があるコントリビューターも対象になるため、fork からの PR は常に承認が必要です。自分や Dependabot の PR はリポジトリ内のブランチから作成されるため、この設定の対象外です。
 
 現在の設定は次のコマンドで確認できます。
 
@@ -123,9 +123,9 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 5. `ghcr.io/<owner>/<repository>/<project>:latest` と `:sha-<short sha>` へ送信する
 6. 送信したプロジェクトを対象に、古いイメージの削除を依頼する
 
-CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。ただし GitHub Actions は concurrency グループ内の実行順を保証しません（FIFO で処理されますが、順序は起動時刻ではなく待機開始時刻に依存します）。そのため CD は実行順に依存せず、ビルド元をジョブ開始時点の最新 `main` にすることで、すべての push の CD が成功したときに最後の成功した実行が最新状態へ収束するようにしています。`projects` 配下の `docs` だけを変更した push では CD が起動しないため、その push はこの判定に含めません。
+CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。ただし GitHub Actions は concurrency グループ内の実行順を保証しません（FIFO で処理されますが、順序は起動時刻ではなく待機開始時刻に依存します）。そのため CD では実行順に依存しないよう、ジョブ開始時点の最新 `main` をビルド元にしています。これにより、すべての push の CD が成功すれば、最後に成功した実行で最新状態へ収束します。`projects` 配下の `docs` だけを変更した push では CD が起動しないため、その push はこの判定に含めません。
 
-> 実行が失敗またはキャンセルされた push の変更対象プロジェクトは、その後の push が別プロジェクトだけを変更した場合は再ビルドされません。`docs` のみの push でも再ビルドされません。失敗した自動 CD の `latest` を更新するには、失敗した実行を再実行するか、そのプロジェクトのコードを変更する push を行います。手動実行は `manual-*` タグだけを作り、`latest` / `sha-*` は更新しません。
+> 実行が失敗またはキャンセルされた push の変更対象プロジェクトは、後続の push が別プロジェクトだけを変更した場合や、`docs` のみの push では再ビルドされません。自動 CD が失敗したプロジェクトの `latest` を更新するには、失敗した実行を再実行するか、そのプロジェクトのコードを変更する push を行います。手動実行は `manual-*` タグだけを作り、`latest` / `sha-*` は更新しません。
 
 ### 手動実行
 
@@ -146,7 +146,7 @@ CD は同じブランチの実行を直列に処理し、後続の push があ�
 | `main` への push（`docs` のみを除く） | `latest`、`sha-<short sha>` |
 | 手動実行 | `manual-<sanitized-ref>-<short-sha>` |
 
-自動実行の `sha-<short sha>` は、その実行で実際にビルドした `main` のコミットです（`latest` と同じイメージを指します）。CD のログにはビルド元の SHA、プロジェクト、push したタグが出力されます。手動実行は入力した ref のタグだけを push し、`latest` は更新しません。`docs` のみの push では CD が起動しないため、`sha-*` タグが main の HEAD に存在しないことがあります。デプロイでは、そのプロジェクトを最後にビルドしたコミットのタグを指定します。
+自動実行の `sha-<short sha>` は、その実行で実際にビルドした `main` のコミットに対応するタグです（`latest` と同じイメージを指します）。CD のログにはビルド元の SHA、プロジェクト、push したタグが出力されます。手動実行は入力した ref のタグだけを push し、`latest` は更新しません。`docs` のみの push では CD が起動しないため、`main` の HEAD に対応する `sha-*` タグが存在しないことがあります。デプロイでは、そのプロジェクトを最後にビルドしたコミットのタグを指定します。
 
 手動実行のタグでは、入力した ref を小文字へ変換し、タグに使えない文字を `-` へ置換します。完了ログには、デプロイ側へ渡す値が次の形式で表示されます。
 
@@ -157,7 +157,7 @@ image_path=monorepo/<project-name> image_tag=<generated-tag>
 
 ## 古いイメージの削除依頼
 
-GHCR への送信後、`cleanup-docker-images` アクションが `repository_dispatch` を送ります。現行の通知先は `u7chan/self-hosted-runner` です。保持数は送信先の cleanup workflow が決め、monorepo は保持数を指定しません。
+GHCR への送信後、`cleanup-docker-images` アクションが `repository_dispatch` を送ります。現行の通知先は `u7chan/self-hosted-runner` です。保持数は送信先の cleanup workflow が決めるため、monorepo 側では指定しません。
 
 ```json
 {
@@ -188,21 +188,21 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 
 ## アクション依存の固定
 
-workflow が使う外部 action は `.github/workflows/actions.lock` で commit に固定しています。workflow 側は `actions/checkout@v6` のような読みやすい ref のままですが、実行されるのは lockfile に記録された commit です。lockfile は直接使う action だけでなく、その action が使う推移的依存も記録します。
+ワークフローが使う外部アクションは、`.github/workflows/actions.lock` で特定のコミットに固定しています。ワークフロー上は `actions/checkout@v6` のような読みやすい ref のままですが、実際に実行されるのはロックファイルに記録されたコミットです。ロックファイルには直接使うアクションだけでなく、それらが依存する推移的依存も記録されます。
 
-- `.github/workflows/actions.lock` は手で編集せず、`gh-actions-lock` で再生成する。workflow 内の ref は、生成時に解決済みのバージョン（例: `@v6` から `@v6.1.0`）へ狭められる。
-- action や workflow を追加・変更したら、同じ PR で lockfile を更新する。
+- `.github/workflows/actions.lock` は手で編集せず、`gh-actions-lock` で再生成する。生成時に、ワークフロー内の ref は解決済みの具体的なバージョン（例: `@v6` から `@v6.1.0`）へ書き換えられる。
+- アクションやワークフローを追加・変更したら、同じ PR でロックファイルを更新する。
 
   ```bash
   gh extension install github/gh-actions-lock
   gh actions-lock --ignore-local-actions
   ```
 
-- `.github/workflows/actions-lock-verify.yml` が PR と `main` push で `gh actions-lock --verify` を実行し、lockfile が古い場合は失敗する。
-- Dependabot が action を更新する PR では、lockfile も同じ PR で更新される。
-- lockfile の差分は依存更新として review する。`commit` の変更は実行されるコードの変更、`owner_id` / `repo_id` の変更は参照先リポジトリの変更を意味する。
-- リポジトリ内の composite action は `./` 参照のままにしている。手動 CD は入力された ref を checkout するため、`$/` に変えると実行される action の世代が変わる。
-- reusable workflow、container image、runner image は lockfile の対象外。
+- `.github/workflows/actions-lock-verify.yml` が PR と `main` への push で `gh actions-lock --verify` を実行し、ロックファイルが古い場合は失敗する。
+- Dependabot がアクションを更新する PR では、ロックファイルも同じ PR で更新される。
+- ロックファイルの差分は依存更新としてレビューする。`commit` の変更は実行されるコードの変更、`owner_id` / `repo_id` の変更は参照先リポジトリの変更を意味する。
+- リポジトリ内の composite action は `./` 参照のままにしている。手動 CD は入力された ref を checkout するため、`$/` に変えると実行されるアクションの世代が変わってしまう。
+- reusable workflow、コンテナイメージ、ランナーイメージはロックファイルの対象外とする。
 
 ## トラブルシューティング
 
@@ -212,7 +212,7 @@ workflow が使う外部 action は `.github/workflows/actions.lock` で commit 
 2. プロジェクトルートにマーカーファイルがあるか確認する
 3. プロジェクトルートに `Dockerfile` があるか確認する
 4. CD の場合は、`Dockerfile` に `AS final` があるか確認する
-5. push の差分基点（`github.event.before`）を解決できない場合、CD は対象 0 件として成功せず、エラーで停止する。エラーになった場合はログの `cannot resolve` を確認する
+5. push の差分基点（`github.event.before`）を解決できない場合、CD は対象 0 件で成功扱いにはならずエラーで停止するため、ログの `cannot resolve` を確認する
 
 ### docs のみの push で CD が起動しない
 
@@ -220,16 +220,16 @@ workflow が使う外部 action は `.github/workflows/actions.lock` で commit 
 
 ### `:latest` がどのコミットのイメージか確認する
 
-CD のログにビルド元の SHA（`build_source_sha=`）と push したタグが出ます。イメージ側では `sha-<short sha>` タグで同じイメージを取得できます。docs のみの push では `sha-*` タグが作られないため、その場合はそのプロジェクトを最後にビルドしたコミットのタグを使います。
+CD のログにビルド元の SHA（`build_source_sha=`）と push したタグが出力されます。イメージ側では `sha-<short sha>` タグで同じイメージを取得できます。`docs` のみの push では `sha-*` タグが作られないため、その場合はそのプロジェクトを最後にビルドしたコミットのタグを使います。
 
 ```bash
 docker pull ghcr.io/u7chan/monorepo/u7agent:sha-<short sha>
 docker image inspect ghcr.io/u7chan/monorepo/u7agent:sha-<short sha> --format '{{.Config.Env}}'
 ```
 
-`COMMIT_HASH` を埋め込んでいるプロジェクト（`u7agent` など）は、イメージの `COMMIT_HASH` でもビルド元の commit を確認できます。
+`COMMIT_HASH` を埋め込んでいるプロジェクト（`u7agent` など）は、イメージの `COMMIT_HASH` でもビルド元のコミットを確認できます。
 
-### 外部 contributor の PR で CI が始まらない
+### 外部コントリビューターの PR で CI が始まらない
 
 fork からの PR は承認待ちで停止します。PR の **Files changed** で **Awaiting approval** を開き、**Approve workflows to run** を選ぶと実行されます。承認されないまま 30 日経過した実行は削除されます。
 

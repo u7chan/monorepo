@@ -45,7 +45,7 @@ projects/edit-vid/           # Python のマニフェストルート
 projects/edit-vid/frontend/  # Node.js のマニフェストルート
 ```
 
-pnpm workspace は例外です。親に `pnpm-workspace.yaml` と `pnpm-lock.yaml` があり、lockfile の `importers` に登録されている子マニフェストは、親を対象にまとめて一度だけスキャンします。CLI の `--target`、`--all-targets` と PR の対象検出で同じ判定を使います。子が独立したlockfileを持つ場合や、importerとして未登録の場合は統合しません。対象は pnpm が生成する標準形式のlockfileです。
+pnpm workspace は例外です。親に `pnpm-workspace.yaml` と `pnpm-lock.yaml` があり、ロックファイルの `importers` に登録されている子マニフェストは、親を対象にまとめて一度だけスキャンします。CLI の `--target`、`--all-targets` と PR の対象検出で同じ判定を使います。子が独立したロックファイルを持つ場合や、importer として未登録の場合は統合しません。対象は pnpm が生成する標準形式のロックファイルです。
 
 ### PR で実スキャンを始める変更
 
@@ -107,7 +107,7 @@ PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使っ�
 | `review` | `LGPL-*`、`MPL-1.*`、`EPL-*`、`CDDL-*` |
 | `denied` | `AGPL-*`、`GPL-*`、`SSPL-*`、`Commons Clause` |
 
-MPL-2.0 は通常の依存・ビルドツール利用を許可する。MPL 対象コードを改変して配布する場合や、MPL 対象物を成果物として再配布する場合は個別に確認する。
+`MPL-2.0` は通常の依存パッケージやビルドツールとしての利用を許可します。MPL 対象コードを改変して配布する場合や、MPL 対象物を成果物として再配布する場合は個別に確認します。
 
 ポリシーを編集したら、構文と必須項目を検証します。
 
@@ -149,7 +149,7 @@ MPL-2.0 は通常の依存・ビルドツール利用を許可する。MPL 対�
 
 ログには絵文字を使わず、`status` と `reason_code` を固定の英字で出力します。
 
-| `status` | `reason_code` | 確認内容 |
+| `status` | `reason_code` | 意味 |
 | --- | --- | --- |
 | `PASS` | `LICENSE_ALLOWED` | ポリシーで許可されている |
 | `PASS` | `NO_DEPENDENCIES` | Node.js の依存パッケージが定義されていない |
