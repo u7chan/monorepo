@@ -43,7 +43,7 @@ Dependabot PR が作成されたら、次の順に確認します。
 | Bun | `package.json`、`bun.lock` |
 | pnpm | `package.json`、`pnpm-lock.yaml` |
 | uv | `pyproject.toml`、`uv.lock` |
-| Docker | `Dockerfile`（ベースイメージを版と digest で固定しているもの） |
+| Docker | `Dockerfile`（ベースイメージをバージョンと digest で固定しているもの） |
 
 ### 2. `updates` を追加する
 
@@ -72,7 +72,7 @@ Dependabot PR が作成されたら、次の順に確認します。
 
 #### pnpm
 
-Dependabot に pnpm 専用の `package-ecosystem` 値はないため、pnpm を使うプロジェクトでも `package-ecosystem: "npm"` を指定します。バージョン更新が対応する pnpm は v7〜v10 です。
+Dependabot には pnpm 専用の `package-ecosystem` の値がないため、pnpm を使うプロジェクトでも `package-ecosystem: "npm"` を指定します。バージョン更新に対応している pnpm は v7〜v10 です。
 
 ```yaml
 - package-ecosystem: "npm"
@@ -116,7 +116,7 @@ Dependabot に pnpm 専用の `package-ecosystem` 値はないため、pnpm を�
 
 #### Docker
 
-Docker のエントリは lockfile から判定できないため、自動メンテの対象外として手で追加します。同じディレクトリに `npm` などのエントリがあってもよく、`directory` は共通で構いません。グループ名は区別できるようにプロジェクト名に `-docker` を付けます。
+Docker のエントリはロックファイルから判定できないため、自動メンテナンスの対象外として手で追加します。同じディレクトリに `npm` などのエントリがあっても問題なく、`directory` は共通で構いません。他のエントリと区別できるよう、グループ名にはプロジェクト名の後ろに `-docker` を付けます。
 
 ```yaml
 - package-ecosystem: "docker"
@@ -137,7 +137,7 @@ Docker のエントリは lockfile から判定できないため、自動メン
         - "patch"
 ```
 
-Dependabot が digest を更新できるのは、Dockerfile 側で既に digest を固定している場合だけです。`FROM image:tag` のままだとタグの更新だけが対象になるため、ベースイメージは版と digest の両方で固定します。
+Dependabot が digest を更新できるのは、`Dockerfile` 側で既に digest を固定している場合だけです。`FROM image:tag` のままだとタグの更新だけが対象になるため、ベースイメージはバージョンと digest の両方で固定します。
 
 ### 3. 設定を確認する
 
@@ -222,9 +222,7 @@ labels:
   - "dependabot-auto-process"
 ```
 
-`dependabot-auto-process` は一括処理の候補を選ぶためのラベルです。
-ラベルだけで信頼性を判断せず、Dependabot の作成者、base、head、CI などを
-別途確認します。既存の Dependabot PR へは設定変更だけでは遡及適用されません。
+`dependabot-auto-process` は一括処理の候補を選ぶためのラベルです。ラベルだけで信頼性を判断せず、PR の作成者、base、head、CI などを別途確認します。なお、設定を変更しても既存の Dependabot PR には遡及適用されません。
 
 ## PR が作成されないとき
 
