@@ -159,7 +159,7 @@ export function ProviderCard(props: {
       ) : null}
 
       {source.notes.length > 0 ? (
-        <ul class="up-notes">
+        <ul class="up-notes" role="list">
           {source.notes.map((note) => (
             <li class="up-caption" key={note}>
               {note}

@@ -281,10 +281,15 @@ function describeCreditBalance(credits: Record<string, unknown> | null): string 
   const balance = raw === null ? Number.NaN : Number(raw);
 
   if (Number.isFinite(balance)) {
+    // 有無は丸める前の値で決める。0.4 を丸めて「なし」と書かない。
+    if (balance <= 0) {
+      return "クレジットなし";
+    }
+
     const rounded = Math.round(balance);
 
-    // 「残高 0」は通帳のように読める。0 は「なし」、正の値は数値だけで出す。
-    return rounded > 0 ? `クレジット ${rounded}` : "クレジットなし";
+    // 1 未満の正の残高は丸めると 0 になる。数を出す代わりに有無だけを伝える。
+    return rounded > 0 ? `クレジット ${rounded}` : "クレジットあり";
   }
 
   return credits.has_credits === true ? "クレジットあり" : null;

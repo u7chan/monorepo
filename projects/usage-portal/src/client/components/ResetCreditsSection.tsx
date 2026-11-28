@@ -11,7 +11,7 @@ export function ResetCreditsSection(props: { view: ResetCreditsView }) {
         {view.count === null ? null : <span class="up-reset-count">{view.count} 回</span>}
       </div>
       {view.rows.length === 0 ? null : (
-        <ul class="up-reset-list">
+        <ul class="up-reset-list" role="list">
           {view.rows.map((row, index) => (
             <li class="up-reset-row" key={`${row.date}:${index}`} data-expired={row.expired ? "true" : undefined}>
               <span class="up-reset-remaining">{row.remaining}</span>

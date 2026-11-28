@@ -134,6 +134,8 @@ describe("parseCodexUsage", () => {
       parseCodexUsage(usage({ primary_window: { used_percent: 10 } }, { credits }), CAPTURED).notes;
 
     expect(notesOf({ has_credits: false, balance: "0" })).toEqual(["クレジットなし"]);
+    expect(notesOf({ has_credits: true, balance: "0.4" })).toEqual(["クレジットあり"]);
+    expect(notesOf({ has_credits: true, balance: "0.5" })).toEqual(["クレジット 1"]);
     expect(notesOf({ has_credits: true, balance: "12.6" })).toEqual(["クレジット 13"]);
     expect(notesOf({ has_credits: true, balance: null })).toEqual(["クレジットあり"]);
     expect(notesOf({ has_credits: false, balance: null })).toEqual([]);
