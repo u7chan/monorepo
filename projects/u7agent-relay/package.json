@@ -16,14 +16,14 @@
   "dependencies": {
     "@hono/mcp": "^0.3.5",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "hono": "^4.13.19",
+    "hono": "^4.13.23",
     "preact": "^11.2.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "oxfmt": "0.79.0",
-    "oxlint": "^1.94.0",
+    "oxfmt": "0.80.0",
+    "oxlint": "^1.95.0",
     "typescript": "^7.0.2"
   }
 }

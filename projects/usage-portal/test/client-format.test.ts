@@ -5,6 +5,8 @@ import {
   describeCoverage,
   describeRemaining,
   describeReset,
+  describeClaudeResetCredits,
+  describeResetCredits,
   formatClock,
   formatDateTime,
   formatFetchInterval,
@@ -45,6 +47,162 @@ describe("formatPercent / remainingPercent", () => {
     expect(remainingPercent(62)).toBe(38);
     expect(remainingPercent(120)).toBe(0);
     expect(remainingPercent(-1)).toBe(100);
+  });
+});
+
+describe("describeResetCredits", () => {
+  const now = new Date(2026, 10, 28, 12, 0).getTime();
+
+  test("回数が 0 なら行を出さない", () => {
+    expect(describeResetCredits({ available: 0, details: [{ expiresAt: now + DAY }] }, now)).toBeNull();
+  });
+
+  test("期限を取れていなければ回数だけを出し、期限を推測しない", () => {
+    expect(describeResetCredits({ available: 2, details: null }, now)).toEqual({
+      label: "リセット枠 2回",
+      rows: [],
+      notes: [],
+    });
+  });
+
+  test("期限は全部の枠を昇順で出し、残り時間を添える", () => {
+    expect(
+      describeResetCredits(
+        { available: 2, details: [{ expiresAt: now + 28 * DAY }, { expiresAt: now + 15 * DAY }] },
+        now,
+      ),
+    ).toEqual({
+      label: "リセット枠 2回",
+      rows: [
+        { remaining: "あと 15 日", at: `期限 ${formatDateTime(now + 15 * DAY)}` },
+        { remaining: "あと 28 日", at: `期限 ${formatDateTime(now + 28 * DAY)}` },
+      ],
+      notes: [],
+    });
+  });
+
+  test("期限なしと確認できた枠は期限なしと出す", () => {
+    expect(describeResetCredits({ available: 1, details: [{ expiresAt: null }] }, now)).toEqual({
+      label: "リセット枠 1回",
+      rows: [],
+      notes: ["期限なし 1件"],
+    });
+  });
+
+  test("期限ありと期限なしが混ざっても、期限なしを期限不明にしない", () => {
+    expect(
+      describeResetCredits({ available: 2, details: [{ expiresAt: now + DAY }, { expiresAt: null }] }, now),
+    ).toEqual({
+      label: "リセット枠 2回",
+      rows: [{ remaining: "あと 1 日", at: `期限 ${formatDateTime(now + DAY)}` }],
+      notes: ["期限なし 1件"],
+    });
+  });
+
+  test("一覧が回数より少なければ、残りだけを期限不明として出す", () => {
+    expect(describeResetCredits({ available: 3, details: [{ expiresAt: now + DAY }] }, now)).toEqual({
+      label: "リセット枠 3回",
+      rows: [{ remaining: "あと 1 日", at: `期限 ${formatDateTime(now + DAY)}` }],
+      notes: ["他 2件は期限不明"],
+    });
+  });
+
+  test("詳細が空なら全部を期限不明と出し、期限なしと書かない", () => {
+    expect(describeResetCredits({ available: 2, details: [] }, now)).toEqual({
+      label: "リセット枠 2回",
+      rows: [],
+      notes: ["期限不明 2件"],
+    });
+  });
+
+  test("期限を過ぎた枠は期限切れと出す", () => {
+    expect(describeResetCredits({ available: 1, details: [{ expiresAt: now - HOUR }] }, now)).toEqual({
+      label: "リセット枠 1回",
+      rows: [{ remaining: "期限切れ", at: `期限 ${formatDateTime(now - HOUR)}` }],
+      notes: [],
+    });
+  });
+});
+
+describe("describeClaudeResetCredits", () => {
+  const now = new Date(2026, 10, 28, 12, 0).getTime();
+
+  test("未取得なら行を出さない", () => {
+    expect(describeClaudeResetCredits(null, now)).toBeNull();
+    expect(describeClaudeResetCredits({ credits: null, capturedAt: null, error: null }, now)).toBeNull();
+  });
+
+  test("取得済みなら回数と全期限と取得時刻を出す", () => {
+    expect(
+      describeClaudeResetCredits(
+        {
+          credits: { available: 2, expiries: [now + 28 * DAY, now + 15 * DAY] },
+          capturedAt: now - HOUR,
+          error: null,
+        },
+        now,
+      ),
+    ).toEqual({
+      label: "リセット枠 2回",
+      rows: [
+        { remaining: "あと 15 日", at: `期限 ${formatDateTime(now + 15 * DAY)}` },
+        { remaining: "あと 28 日", at: `期限 ${formatDateTime(now + 28 * DAY)}` },
+      ],
+      notes: [],
+      captured: `取得 ${formatDateTime(now - HOUR)}`,
+    });
+  });
+
+  test("0 件と取得失敗を区別する", () => {
+    expect(
+      describeClaudeResetCredits({ credits: { available: 0, expiries: [] }, capturedAt: now, error: null }, now),
+    ).toEqual({
+      label: null,
+      rows: [],
+      notes: ["リセット枠なし"],
+      captured: `取得 ${formatDateTime(now)}`,
+    });
+
+    expect(
+      describeClaudeResetCredits({ credits: null, capturedAt: null, error: { code: "upstream", at: now - HOUR } }, now),
+    ).toEqual({
+      label: null,
+      rows: [],
+      notes: ["リセット枠を取得できませんでした"],
+      captured: `試行 ${formatDateTime(now - HOUR)}`,
+    });
+  });
+
+  test("前回の値が残っていれば、最新の失敗を注記して値を消さない", () => {
+    expect(
+      describeClaudeResetCredits(
+        {
+          credits: { available: 1, expiries: [now + DAY] },
+          capturedAt: now - HOUR,
+          error: { code: "upstream", at: now },
+        },
+        now,
+      ),
+    ).toEqual({
+      label: "リセット枠 1回",
+      rows: [{ remaining: "あと 1 日", at: `期限 ${formatDateTime(now + DAY)}` }],
+      notes: ["最新の取得に失敗しました"],
+      captured: `取得 ${formatDateTime(now - HOUR)}`,
+    });
+  });
+
+  test("期限を過ぎた枠は期限切れと出す", () => {
+    expect(
+      describeClaudeResetCredits(
+        { credits: { available: 1, expiries: [now - HOUR] }, capturedAt: now - 2 * HOUR, error: null },
+        now,
+      ),
+    ).toEqual({
+      label: "リセット枠 1回",
+      rows: [{ remaining: "期限切れ", at: `期限 ${formatDateTime(now - HOUR)}` }],
+      notes: [],
+      captured: `取得 ${formatDateTime(now - 2 * HOUR)}`,
+    });
   });
 });
 

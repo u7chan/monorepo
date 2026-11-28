@@ -1,7 +1,12 @@
 // Claude の更新応答・ログアウト・カードを出す判定と、provider: claude の source を画面側で解釈できることを固定する。
 import { afterEach, describe, expect, test } from "bun:test";
-import { logoutClaude, parseClaudeRefresh, parseUsage } from "../src/client/api";
-import { claudeRefreshMessage, claudeStatusLabel, showsClaudeCard } from "../src/client/lib/claude";
+import { logoutClaude, parseClaudeRefresh, parseClaudeResetCreditsOutcome, parseUsage } from "../src/client/api";
+import {
+  claudeRefreshMessage,
+  claudeResetCreditsMessage,
+  claudeStatusLabel,
+  showsClaudeCard,
+} from "../src/client/lib/claude";
 
 describe("parseClaudeRefresh", () => {
   test("refreshed / skipped の理由 / failed のコードだけを受け取る", () => {
@@ -112,6 +117,7 @@ describe("parseUsage", () => {
           limitReached: false,
           windows: [{ id: "rolling", label: "ローリング", durationSeconds: 18_000, usedPercent: 12, resetsAt: null }],
           notes: [],
+          claudeResetCredits: null,
           trends: [],
         },
       ],
@@ -121,5 +127,30 @@ describe("parseUsage", () => {
     expect(payload?.sources[0]?.provider).toBe("claude");
     expect(payload?.sources[0]?.plan).toBe("Max");
     expect(payload?.sources[0]?.nextFetchAt).toBeNull();
+    expect(payload?.sources[0]?.resetCredits).toBeNull();
+  });
+});
+
+describe("parseClaudeResetCreditsOutcome", () => {
+  test("refreshed / skipped / failed だけを受け取る", () => {
+    expect(parseClaudeResetCreditsOutcome({ state: "refreshed" })).toEqual({ state: "refreshed" });
+    expect(parseClaudeResetCreditsOutcome({ state: "skipped", reason: "logout" })).toEqual({
+      state: "skipped",
+      reason: "logout",
+    });
+    expect(parseClaudeResetCreditsOutcome({ state: "failed", error: "schema" })).toEqual({
+      state: "failed",
+      error: "schema",
+    });
+    expect(parseClaudeResetCreditsOutcome({ state: "failed" })).toEqual({ state: "failed", error: "unavailable" });
+    expect(parseClaudeResetCreditsOutcome({ state: "skipped", reason: "fresh" })).toBeNull();
+    expect(parseClaudeResetCreditsOutcome(null)).toBeNull();
+  });
+
+  test("文言は状態ごとに分け、上流の本文を出さない", () => {
+    expect(claudeResetCreditsMessage({ state: "refreshed" })).toBe("リセット枠を取得しました。");
+    expect(claudeResetCreditsMessage({ state: "failed", error: "reauth_required" })).toContain("サインイン");
+    expect(claudeResetCreditsMessage({ state: "failed", error: "upstream" })).not.toContain("HTTP");
+    expect(claudeResetCreditsMessage(null)).toContain("通信");
   });
 });

@@ -1,5 +1,5 @@
 # HTML import (バンドラ) と bun:sqlite に依存するので、Node.js へは寄せずに Bun を使う。final にも Node.js は入れない。
-# 1.4.4 は 2026-11 時点の修正済み安定版 (`latest` と同一 digest)。可変タグのままだと同じコミットでも
+# 1.4.5 は 2026-11 時点の修正済み安定版。可変タグのままだと同じコミットでも
 # 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含むマルチ
 # アーキテクチャの manifest index で、プラットフォーム別 manifest ではない。通常版と slim 版で digest は別。
 # ARG で共通化すると Dependabot の docker 更新が FROM 行のリテラルを書き換えられないので、値を各 FROM 行に書く。
@@ -56,8 +56,9 @@ RUN bun install --frozen-lockfile --production
 # claude cli stage
 #   公式 CLI をビルド時に落として checksum を突き合わせ、final にはバイナリだけを渡す。
 #   final に curl / jq を残さないことと、image の層を増やさないことが目的。
-#   版を上げるときは CLAUDE_CODE_VERSION を変えて、adapter の fixture（test/providers-claude.test.ts）を
-#   実際の出力と突き合わせ直す。
+#   版は .github/workflows/claude-cli-version-check.yml が週次で stable チャネルと比べ、新しい版が
+#   あれば PR にする。手で上げるときも CLAUDE_CODE_VERSION を変え、adapter の fixture
+#   （test/providers-claude.test.ts）を実際の出力と突き合わせ直す。
 # -----------------------------------------------
 FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS claude-cli
 

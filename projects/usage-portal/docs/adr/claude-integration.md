@@ -34,7 +34,8 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 ### 取得方法
 
 - 公式 `claude` を子プロセスとして起動し、`claude -p "/usage" --output-format json --no-session-persistence` の
-  `result`（文字列）を読む。トークンを取り出して API を直接叩かず、`.credentials.json` も読まない。
+  `result`（文字列）を読む。利用枠についてはトークンを取り出して API を直接叩かず、`.credentials.json` も読まない
+  （リセット枠の手動取得だけは下の例外）。
 - 子プロセスには `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ=UTC` だけを渡し、cwd は空の一時ディレクトリにする。
 - `Current session` を rolling（18000 秒）、`Current week (all models)` を weekly（604800 秒）の窓にする。
   `N% used` と `resets <日時> (<IANA タイムゾーン>)` を読む。日時は通常年が無く、リセットが翌年に落ちるときだけ年が付く。
@@ -44,6 +45,34 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - 正規化した `ProviderSnapshot`（`provider: "claude"`、source id は `claude` 固定、plan は `subscriptionType`）と
   sample だけを既存のテーブルへ保存する。CLI の出力本文は DB・ログ・応答に残さない。
 - 公式バイナリは改変せずに image へ入れ、自動更新は止めてバージョンを固定する。版を上げるときは fixture の差分を見る。
+- 版は `stable` チャネル（`https://downloads.claude.ai/claude-code-releases/stable`）に追従する。
+  Dependabot はこの取得経路を追えないため、
+  [.github/workflows/claude-cli-version-check.yml](../../../../.github/workflows/claude-cli-version-check.yml) が週次で
+  `stable` と Dockerfile の固定版を比べ、新しい版があれば PR を作る。マージと fixture の再確認は人間が行う。
+  固定版が `stable` より進んでいるときは下げる提案をしない（`stable` は遅れて追いつく）。
+  `GITHUB_TOKEN` で PR を作るため、repository で GitHub Actions の PR 作成を許可しておく必要がある。
+
+### リセット枠（手動取得）
+
+- Claude の利用枠とは別に、リセット枠（`cedar_ember` の grant）を読む。`claude -p "/usage"` の text には出ないため、
+  OAuth の usage API（`GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1`）を直接読む。
+  この 1 経路だけ、`CREDENTIAL_DIR/claude/.credentials.json` の access token をメモリ上で読む例外とする。
+- token は保存・ログ・応答に出さない。refresh は CLI に任せ、Portal は credentials を書き換えない。
+  access token が無い・失効・401 のときは `/usage` を 1 回だけ実行して更新し、同じ要求を 1 回だけやり直す。
+  CLI の起動は通常の手動更新と同じ 60 秒の間隔に従い、cooldown 中は起動せずに読み直しだけで判断する。
+- 取得は画面のメニュー「リセット枠を取得」からだけ行う。周期取得にも、画面を開いたときの `/usage` にも乗せない。
+  通常の `/usage` と同時に走らせないよう、Claude の取得と同じ single-flight に直列化する。
+- 認証は `Authorization: Bearer <access>` と `anthropic-beta: oauth-2025-04-20`。`?cedar_ember=1` を付けないと
+  `cedar_ember` は `null` で返る。
+- `grants[]` のうち `resets_left > 0` かつ `ends_at > now` を採用する。回数は `resets_left` の合計、期限は
+  `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。期限の無い grant（`ends_at: null`）は
+  今の表示モデルで表せないため対象外にする。
+- 0 件とするのは `eligible: false` のときと、`grants[]` が空・未設定のときだけ。`cedar_ember` が null、
+  行や `ends_at` の形が読めない応答（キーの欠落を含む）は、0 件ではなく取得失敗として扱う
+  （前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
+- `cedar_ember` の形が変わったら adapter を直す。
+- 結果は `/usage` の snapshot とは別の 1 行（`claude_reset_credits`）に保存し、通常の更新で消えないようにする。
+  取得失敗は前回の値を残して error だけを更新し、ログアウトで行ごと消す。
 
 ### 接続の判定とログアウト
 

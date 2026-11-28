@@ -5,8 +5,12 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  deleteClaudeResetCredits,
+  loadClaudeResetCredits,
   loadFetchIntervals,
   openDatabase,
+  saveClaudeResetCredits,
+  saveClaudeResetCreditsError,
   saveFetchInterval,
   saveProviderError,
   loadProviderErrors,
@@ -49,7 +53,7 @@ afterEach(() => {
 });
 
 describe("openDatabase", () => {
-  test("v3 のテーブルを作り、user_version を 3 にする", () => {
+  test("v4 のテーブルを作り、user_version を 4 にする", () => {
     const { db, path } = open();
 
     const tables = db
@@ -58,6 +62,7 @@ describe("openDatabase", () => {
       .map((row) => (row as { name: string }).name);
 
     expect(tables).toEqual([
+      "claude_reset_credits",
       "claude_start",
       "claude_start_run",
       "fetch_interval",
@@ -170,6 +175,7 @@ describe("v1 からの migration", () => {
       .map((row) => (row as { name: string }).name);
 
     expect(tables).toEqual([
+      "claude_reset_credits",
       "claude_start",
       "claude_start_run",
       "fetch_interval",
@@ -177,7 +183,7 @@ describe("v1 からの migration", () => {
       "provider_snapshot",
       "usage_sample",
     ]);
-    expect(handle.db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(handle.db.query("PRAGMA user_version").get()).toEqual({ user_version: 4 });
     expect(handle.db.query("SELECT provider, code FROM provider_error").get()).toEqual({
       provider: "codex",
       code: "upstream",
@@ -223,5 +229,53 @@ describe("provider_error の一括読み出し", () => {
         ["codex", { code: "upstream", at: 5678 }],
       ]),
     );
+  });
+});
+
+describe("claude_reset_credits", () => {
+  test("成功で値を置き換え、失敗では前回の値を残して error だけを書く", () => {
+    const handle = open();
+
+    expect(loadClaudeResetCredits(handle)).toBeNull();
+
+    saveClaudeResetCredits(handle, { capturedAt: 1000, credits: { available: 2, expiries: [2000, 3000] } });
+
+    expect(loadClaudeResetCredits(handle)).toEqual({
+      credits: { available: 2, expiries: [2000, 3000] },
+      capturedAt: 1000,
+      error: null,
+    });
+
+    saveClaudeResetCreditsError(handle, { code: "upstream", message: "取得できませんでした", at: 1500 });
+
+    expect(loadClaudeResetCredits(handle)).toEqual({
+      credits: { available: 2, expiries: [2000, 3000] },
+      capturedAt: 1000,
+      error: { code: "upstream", message: "取得できませんでした", at: 1500 },
+    });
+
+    saveClaudeResetCredits(handle, { capturedAt: 2000, credits: { available: 1, expiries: [4000] } });
+
+    expect(loadClaudeResetCredits(handle)).toEqual({
+      credits: { available: 1, expiries: [4000] },
+      capturedAt: 2000,
+      error: null,
+    });
+  });
+
+  test("失敗だけのときは値を持たず、ログアウトで消せる", () => {
+    const handle = open();
+
+    saveClaudeResetCreditsError(handle, { code: "reauth_required", message: "再サインイン", at: 1 });
+
+    expect(loadClaudeResetCredits(handle)).toEqual({
+      credits: null,
+      capturedAt: null,
+      error: { code: "reauth_required", message: "再サインイン", at: 1 },
+    });
+
+    deleteClaudeResetCredits(handle);
+
+    expect(loadClaudeResetCredits(handle)).toBeNull();
   });
 });

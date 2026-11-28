@@ -144,6 +144,8 @@ const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => s
 const claude = createClaudeUsageService({
   db: database,
   cli: createClaudeCli({ credentialDir: config.credentialDir, env: process.env }),
+  credentialDir: config.credentialDir,
+  userAgent,
   now: Date.now,
   log,
 });
@@ -187,6 +189,7 @@ const app = createApp({
   opencode,
   claude: {
     refresh: claude.refresh,
+    resetCredits: claude.resetCredits,
     logout: async () => {
       const ok = await claude.logout();
 

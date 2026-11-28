@@ -7,12 +7,15 @@ ARG COMMIT_HASH=""
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
-FROM oven/bun:debian AS bun
+# bun も可変タグ (`debian`) のままだと同じコミットでも再ビルドで中身が変わるため、版と digest で固定する。
+# digest は linux/amd64 と arm64 を含むマルチアーキテクチャの manifest index。更新は Dependabot の
+# `/projects/portfolio` docker エントリで受ける。
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS bun
 # 26.13.1 は 2026-11-11 のセキュリティリリース版。可変タグ (`26-slim`) のままだと同じコミットでも
 # 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含む
 # マルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。`-trixie-slim` を
 # 明示するのは、ベースが trixie から動いたときに apt で入れる postgresql-client などが変わるため。
-FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
+FROM node:26.13.1-trixie-slim@sha256:abe7e5a82b61a8ef67b315b85497c9e65173387ccf2f4a029248184b8e020be5 AS base
 
 WORKDIR /app
 

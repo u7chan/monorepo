@@ -78,7 +78,13 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 ローリングは 5 時間以内に終わって日付が残り時間から分かるため日付を省き、日をまたぐときだけ「リセット 翌 02:00」と出す。
+Codex のカードは利用枠の下に「リセット枠 2回」と、枠ごとの期限（「あと 15 日 期限 12/13 07:36」）を全部出す。
+期限は公式のリセット詳細から読み、取得できなかったときは回数だけを出す（期限を推測しない）。
+期限なしと確認できた枠は「期限なし」、詳細の一覧に無い枠は「期限不明」として区別する。
+クレジット残高は数値（「クレジット残高 0」）で出し、数値を読めないときだけ有無を出す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
+`⋮` の「リセット枠を取得」は通常の更新とは別で、押したときだけ回数と枠ごとの期限（「あと 13 日 期限 01/15 09:00」）を読む。
+一度も押していなければ何も出さず、0 件と取得失敗は別の文言にする。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
 カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
@@ -119,7 +125,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/auth/setup`                  | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201）                                                                                                                                                                              |
 | `POST`   | `/api/auth/login`                  | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`）                                                                                                                                                 |
 | `POST`   | `/api/auth/logout`                 | 不要 | cookie を消す（204）                                                                                                                                                                                                                                          |
-| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs` と `nextFetchAt` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
+| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs`、`nextFetchAt`、Codex だけ `resetCredits`、Claude だけ `claudeResetCredits` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
 | `GET`    | `/api/settings/fetch-intervals`    | 必要 | `{ intervals: { codex, "opencode-go" } }`（ミリ秒）。未設定の provider は既定値                                                                                                                                                                               |
 | `PUT`    | `/api/settings/fetch-intervals`    | 必要 | `{ "provider": "codex", "minutes": 10 }`。5 / 10 / 30 / 60 / 120 以外は 400。サーバー全体に効く                                                                                                                                                              |
 | `GET`    | `/api/codex/auth`                  | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態                                                                                                                                                                                                 |
@@ -138,7 +144,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
 | `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（200 `{ ok }`）。停止中でも再開できる。未知の id は 404                                                                                                                                                                  |
 | `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける。ログアウト中は `skipped: logout` |
-| `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot と error を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
+| `POST`   | `/api/claude/reset-credits`        | 必要 | 押されたときだけリセット枠を読む。`{ state: "refreshed" \| { state: "skipped", reason: "logout" } \| { state: "failed", error } }`。通常の更新とは別の入口 |
+| `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot・error・リセット枠を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
 | `GET`    | `/api/claude/start`                | 必要 | 開始予約の設定・オン / オフ・連続失敗の数・停止の理由・次の開始・直近 20 件の履歴 |
 | `PUT`    | `/api/claude/start`                | 必要 | 予約の設定を保存（オン / オフは変えない）。不正な入力は 400 `invalid_request` |
 | `PUT`    | `/api/claude/start/enabled`        | 必要 | `{ "enabled": boolean }`。オンに戻すと連続失敗の数と停止の理由を消す。設定が無ければ 409 `not_configured` |
@@ -269,7 +276,7 @@ PIN とセッション鍵は環境変数では渡さない。
 ## Docker
 
 `test` ステージは `bun install --frozen-lockfile` の後に `bun run check` を実行する。`final` ステージは非 root（uid/gid 1000）で `bun src/server.ts` を起動する。
-どちらも `oven/bun` のパッチ版（1.4.4 / 1.4.4-slim）を digest で固定している。
+どちらも `oven/bun` のパッチ版（1.4.5 / 1.4.5-slim）を digest で固定している。
 
 `final` には公式 Claude Code CLI を、`downloads.claude.ai` の版固定バイナリを公式 manifest の checksum で検証して入れる
 （ビルド時に約 370 MB を取得する）。バイナリは root 所有の 0755 で置き、実行ユーザーからは書き換えられない。
@@ -290,6 +297,32 @@ docker run --rm -p 3000:3000 \
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
 - `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**。Claude の資格情報はカードの「ログアウトして非表示」で CLI が削除する
+
+### Claude Code CLI の版更新
+
+Dependabot はこの取得経路（`FROM` 行を持たない直ダウンロード）を追えないため、
+[.github/workflows/claude-cli-version-check.yml](../../.github/workflows/claude-cli-version-check.yml) が
+週次（月曜 06:00 JST）で `https://downloads.claude.ai/claude-code-releases/stable` と固定版を比べ、新しい版があれば
+`CLAUDE_CODE_VERSION` を上げる PR を作る。PR の作成までを自動化し、マージと次の確認は人間が行う。
+
+1. 上げた版の manifest に linux-x64 / linux-arm64 の checksum があることと、`claude-cli` ステージのビルド
+   （checksum 検証と `claude --version`）は workflow が確認する。失敗したら PR は作られない
+2. PR のブランチでも、新しい版の CLI を実際に動かして `/usage` と認証状態の出力を確かめる
+
+   ```bash
+   docker exec <コンテナ> claude -p /usage --output-format json --no-session-persistence | jq -r .result
+   docker exec <コンテナ> claude auth status --json
+   ```
+
+   出力が `test/providers-claude.test.ts` の fixture と違っていれば、fixture と `src/server/providers/claude.ts` を直す。
+   workflow は `GITHUB_TOKEN` で PR を作るため CI は自動で走らない。この確認で 1 コミット push すれば CI が走る。
+3. `stable` は新しい版より遅れて追いつくことがある。固定版のほうが進んでいるときは下げる提案をしない
+4. PR の作成には repository の設定（Settings → Actions → General → Workflow permissions の
+   「Allow GitHub Actions to create and approve pull requests」）が必要。無効のままだと、ブランチを push した
+   あとの `gh pr create` だけが失敗する
+5. 同じブランチ名が既にある場合の扱いは次のとおり。PR があれば何もしない。PR が無く workflow が作った
+   コミットだけが残っている（PR 作成に失敗した残骸）なら、確認した SHA を lease にして作り直す。
+   人が push したブランチなら上書きせず見送る（手で版を上げている途中はそちらを優先する）
 
 ## ディレクトリ構成
 

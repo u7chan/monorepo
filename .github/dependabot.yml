@@ -210,6 +210,7 @@ updates:
 
   # ベースイメージの更新。lockfile を持たないので bun のエントリとは分ける。
   # Dockerfile が版 + digest で固定しているため、パッチ版と digest の更新 PR はここで受ける。
+  # FROM 行を持たない Claude Code CLI は .github/workflows/claude-cli-version-check.yml が追う。
   - package-ecosystem: "docker"
     directory: "/projects/usage-portal"
     schedule:

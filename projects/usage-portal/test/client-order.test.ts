@@ -30,6 +30,8 @@ function source(id: string, state: ProviderState, meters: UsageWindow[]): UsageS
     limitReached: false,
     windows: meters,
     notes: [],
+    resetCredits: null,
+    claudeResetCredits: null,
     trends: [],
   };
 }

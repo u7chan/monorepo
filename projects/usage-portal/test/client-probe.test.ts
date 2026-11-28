@@ -21,6 +21,8 @@ function source(overrides: Partial<UsageSource> = {}): UsageSource {
       { id: "primary", label: "週次", durationSeconds: 604_800, usedPercent: 62, resetsAt: BASE_TIME + 60_000 },
     ],
     notes: [],
+    resetCredits: null,
+    claudeResetCredits: null,
     trends: [],
     ...overrides,
   };

@@ -5,7 +5,7 @@ import type { ProviderSnapshot } from "./providers/types";
 import type { SamplePoint } from "./trend";
 import type { UsageError } from "./state";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** 単一キー時代の OpenCode Go の source id。起動時の掃除でだけ使う。 */
 const LEGACY_OPENCODE_SOURCE_ID = "opencode-go";
@@ -69,6 +69,14 @@ const MIGRATIONS: readonly string[] = [
   );
 
   CREATE INDEX claude_start_run_slot ON claude_start_run (slot_at);
+  `,
+  `
+  CREATE TABLE claude_reset_credits (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    captured_at INTEGER,
+    credits_json TEXT,
+    error_json TEXT
+  );
   `,
 ];
 
@@ -185,6 +193,115 @@ export function deleteProviderUsage(handle: DatabaseHandle, sourceId: string): v
 /** snapshot と error だけを消し、sample は残す。Codex のサインアウトで推移を引き継ぐために使う。 */
 export function deleteProviderState(handle: DatabaseHandle, sourceId: string): void {
   deleteUsageRows(handle, "provider = ?", [sourceId], STATE_TABLES);
+}
+
+export type ClaudeResetCreditsValue = { available: number; expiries: number[] };
+
+export type StoredClaudeResetCredits = {
+  /** 最後に取得できた値。一度も取得できていなければ null。 */
+  credits: ClaudeResetCreditsValue | null;
+  /** 最後に取得できた時刻。一度も取得できていなければ null。 */
+  capturedAt: number | null;
+  /** 直近の取得失敗。成功していれば null。 */
+  error: UsageError | null;
+};
+
+/** 取得成功だけが値を置き換える。失敗時は前回の値を残すため、error だけを書く。 */
+export function saveClaudeResetCredits(
+  handle: DatabaseHandle,
+  value: { capturedAt: number; credits: ClaudeResetCreditsValue },
+): void {
+  handle.db
+    .query(`
+      INSERT INTO claude_reset_credits (id, captured_at, credits_json, error_json) VALUES (1, ?, ?, NULL)
+      ON CONFLICT(id) DO UPDATE SET
+        captured_at = excluded.captured_at,
+        credits_json = excluded.credits_json,
+        error_json = NULL
+    `)
+    .run(value.capturedAt, JSON.stringify(value.credits));
+}
+
+export function saveClaudeResetCreditsError(handle: DatabaseHandle, error: UsageError): void {
+  handle.db
+    .query(`
+      INSERT INTO claude_reset_credits (id, captured_at, credits_json, error_json) VALUES (1, NULL, NULL, ?)
+      ON CONFLICT(id) DO UPDATE SET error_json = excluded.error_json
+    `)
+    .run(JSON.stringify(error));
+}
+
+export function loadClaudeResetCredits(handle: DatabaseHandle): StoredClaudeResetCredits | null {
+  const row = handle.db
+    .query("SELECT captured_at, credits_json, error_json FROM claude_reset_credits WHERE id = 1")
+    .get() as { captured_at: number | null; credits_json: string | null; error_json: string | null } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    credits: parseStoredResetCredits(row.credits_json),
+    capturedAt: row.captured_at,
+    error: parseStoredError(row.error_json),
+  };
+}
+
+export function deleteClaudeResetCredits(handle: DatabaseHandle): void {
+  handle.db.query("DELETE FROM claude_reset_credits").run();
+}
+
+function parseStoredResetCredits(json: string | null): ClaudeResetCreditsValue | null {
+  if (json === null) {
+    return null;
+  }
+
+  try {
+    const value: unknown = JSON.parse(json);
+
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const available = record.available;
+    const expiries = record.expiries;
+
+    if (typeof available !== "number" || !Number.isFinite(available) || !Array.isArray(expiries)) {
+      return null;
+    }
+
+    return {
+      available,
+      expiries: expiries.filter((at): at is number => typeof at === "number" && Number.isFinite(at)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredError(json: string | null): UsageError | null {
+  if (json === null) {
+    return null;
+  }
+
+  try {
+    const value: unknown = JSON.parse(json);
+
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+
+    if (typeof record.code !== "string" || typeof record.message !== "string" || typeof record.at !== "number") {
+      return null;
+    }
+
+    return { code: record.code as UsageError["code"], message: record.message, at: record.at };
+  } catch {
+    return null;
+  }
 }
 
 /**

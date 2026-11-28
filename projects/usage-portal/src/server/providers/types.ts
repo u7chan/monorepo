@@ -8,6 +8,19 @@ export type UsageWindow = {
   resetsAt: number | null;
 };
 
+/**
+ * Codex のリセット枠。回数は usage から、期限は詳細 API から読む。
+ * `details` が null のときは詳細を取れておらず、回数だけが分かる。
+ */
+export type ResetCredits = {
+  available: number;
+  /**
+   * 詳細で確認できた available な枠（期限の早い順）。
+   * `expiresAt: null` は期限なしと確認できた枠。一覧に無い枠は期限不明。
+   */
+  details: { expiresAt: number | null }[] | null;
+};
+
 export type ProviderSnapshot = {
   provider: ProviderId;
   name: string;
@@ -16,6 +29,8 @@ export type ProviderSnapshot = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
+  /** リセット枠を持つ provider だけ。古い snapshot には無い。 */
+  resetCredits?: ResetCredits;
 };
 
 /** 画面が分岐に使える固定の分類。上流の文言や例外文をそのまま入れない。 */

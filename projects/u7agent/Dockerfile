@@ -2,7 +2,7 @@
 # 26.13.1 は 2026-11-11 のセキュリティリリース版。可変タグ (`26-trixie-slim`) のままだと同じ
 # コミットでも再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と
 # arm64 を含むマルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。
-FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
+FROM node:26.13.1-trixie-slim@sha256:abe7e5a82b61a8ef67b315b85497c9e65173387ccf2f4a029248184b8e020be5 AS base
 RUN npm install --global pnpm@10.34.5
 WORKDIR /app
 
@@ -33,7 +33,7 @@ COPY server/package.json ./server/package.json
 # FROM 行のリテラルを書き換えられないので、値を 2 か所に書く。
 # cloudflared (一時共有の実体。BFF だけが起動する) も同じステージで取得する。node の版と digest を 3 か所目に書かないため。
 # PATH に入れない固定の置き場へ入れ、sha256 の照合は install-cloudflared.mjs が行う。
-FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS fd
+FROM node:26.13.1-trixie-slim@sha256:abe7e5a82b61a8ef67b315b85497c9e65173387ccf2f4a029248184b8e020be5 AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
 COPY scripts/install-cloudflared.mjs /tmp/installer/scripts/install-cloudflared.mjs

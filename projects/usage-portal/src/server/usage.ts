@@ -1,9 +1,15 @@
-import { loadProviderUsage, loadSamples, type DatabaseHandle } from "./db";
+import {
+  loadClaudeResetCredits,
+  loadProviderUsage,
+  loadSamples,
+  type DatabaseHandle,
+  type StoredClaudeResetCredits,
+} from "./db";
 import { CODEX_SOURCE_ID } from "./codex/source";
 import { openCodeSourceId } from "./opencode/accounts";
 import { CLAUDE_PROVIDER, CODEX_PROVIDER, OPENCODE_PROVIDER } from "./providers";
 import { CLAUDE_REFRESH_INTERVAL_MS } from "./providers/claude";
-import type { ProviderId, UsageWindow } from "./providers/types";
+import type { ProviderId, ResetCredits, UsageWindow } from "./providers/types";
 import { decideProviderState, type ProviderState, type UsageError } from "./state";
 import { buildTrend, trendSpanMs, type Trend } from "./trend";
 
@@ -28,6 +34,10 @@ export type UsageSource = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
+  /** Codex のリセット枠。他の provider と、古い snapshot では null。 */
+  resetCredits: ResetCredits | null;
+  /** Claude のリセット枠（手動取得）。Claude 以外と、未取得では null。 */
+  claudeResetCredits: StoredClaudeResetCredits | null;
   /** 窓ごとの推移。sample が 2 点未満の窓は含めない。 */
   trends: Trend[];
 };
@@ -61,6 +71,7 @@ export function createUsageReader(options: {
       options.db,
       entries.map((entry) => entry.sourceId),
     );
+    const claudeResetCredits = loadClaudeResetCredits(options.db);
 
     return {
       generatedAt: now,
@@ -90,6 +101,8 @@ export function createUsageReader(options: {
           limitReached: snapshot?.limitReached ?? false,
           windows: snapshot?.windows ?? [],
           notes: snapshot?.notes ?? [],
+          resetCredits: snapshot?.resetCredits ?? null,
+          claudeResetCredits: entry.provider === "claude" ? claudeResetCredits : null,
           trends: snapshot ? readTrends(options.db, entry.sourceId, snapshot.windows, now) : [],
         };
       }),

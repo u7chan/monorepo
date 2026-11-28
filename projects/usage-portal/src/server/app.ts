@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { isFetchIntervalMinutes, isFetchIntervalProvider, type FetchIntervalProvider } from "../shared/fetch-interval";
 import type { AuthService } from "./auth";
-import type { ClaudeRefreshMode, ClaudeRefreshResult } from "./claude/service";
+import type { ClaudeRefreshMode, ClaudeRefreshResult, ClaudeResetCreditsResult } from "./claude/service";
 import type { ClaudeStartService } from "./claude/start";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
@@ -43,6 +43,7 @@ export type AppDeps = {
   /** Claude の導入。自動と手動の区別だけを受け取り、起動の可否は service が決める。 */
   claude: {
     refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
+    resetCredits: () => Promise<ClaudeResetCreditsResult>;
     logout: () => Promise<boolean>;
   };
   /** Claude の 5 時間窓の開始予約（docs/adr/claude-integration.md）。timer の起動と停止は server.ts が持つ。 */
@@ -410,6 +411,9 @@ export function createApp(deps: AppDeps) {
       return c.json(await deps.claude.refresh(mode));
     },
   );
+
+  // リセット枠は通常の更新と別に、押されたときだけ取る。
+  app.post("/api/claude/reset-credits", requireSession, async (c) => c.json(await deps.claude.resetCredits()));
 
   app.get("/api/claude/start", requireSession, (c) => c.json(deps.claudeStart.state()));
 
