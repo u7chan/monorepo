@@ -68,6 +68,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: chore/claude-cli-${{ steps.compare.outputs.version }}
+          BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           set -euo pipefail
 
@@ -81,18 +82,29 @@ jobs:
           fi
 
           # PR が無いのにブランチだけある = 前回 push のあとで PR 作成が失敗した残骸。
-          # そのまま push すると non-fast-forward で毎週失敗するので、作り直す。
-          # 対象は PR を持たない workflow 自身のブランチだけに限る。
-          remote_sha="$(git ls-remote --heads origin "$BRANCH" | cut -f1)"
+          # そのまま push すると non-fast-forward で毎週失敗するので、workflow 自身のコミットなら作り直す。
+          # `ls-remote` のパターンは ref の末尾で照合されるため、refs/heads まで含めて完全一致させる。
+          remote_sha="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "reuse=false" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$remote_sha" ]; then
-            echo "::notice::$BRANCH は PR の無いまま残っているため作り直します（remote: $remote_sha）"
-            echo "reuse=true" >> "$GITHUB_OUTPUT"
-            echo "remote_sha=$remote_sha" >> "$GITHUB_OUTPUT"
-          else
-            echo "reuse=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$remote_sha" ]; then
+            exit 0
           fi
+
+          # 人が push したブランチは上書きしない。手で版を上げている途中なら、そちらが正になる。
+          author="$(gh api "repos/$GITHUB_REPOSITORY/commits/$remote_sha" --jq '.commit.author.email')"
+
+          if [ "$author" != "$BOT_EMAIL" ]; then
+            echo "::notice::$BRANCH は人が push したブランチのため触りません（author: $author）"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::$BRANCH は PR の無いまま残っているため作り直します（remote: $remote_sha）"
+          echo "reuse=true" >> "$GITHUB_OUTPUT"
+          echo "remote_sha=$remote_sha" >> "$GITHUB_OUTPUT"
 
       # 版を上げる前に、両アーキテクチャのバイナリが公開済みかを見る。片方だけの公開中に上げると、
       # 別アーキテクチャのホストでビルドしたときに初めて落ちる。
@@ -216,6 +228,7 @@ jobs:
           STABLE: ${{ steps.compare.outputs.stable }}
           SKIP: ${{ steps.existing.outputs.skip }}
           REUSE: ${{ steps.existing.outputs.reuse }}
+          HELD: ${{ steps.existing.outputs.held }}
         run: |
           {
             echo "### Claude CLI version check"
@@ -223,7 +236,9 @@ jobs:
             echo "- stable: \`$STABLE\`"
             echo "- update: \`$UPDATE\`"
 
-            if [ "$SKIP" = "true" ]; then
+            if [ "$HELD" = "true" ]; then
+              echo "- 同名ブランチが人によって push されているため、上書きせずに見送りました"
+            elif [ "$SKIP" = "true" ]; then
               echo "- 同名ブランチの PR が既にあるため作成しませんでした"
             fi
 

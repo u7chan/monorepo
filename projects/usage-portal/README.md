@@ -320,6 +320,9 @@ Dependabot はこの取得経路（`FROM` 行を持たない直ダウンロー�
 4. PR の作成には repository の設定（Settings → Actions → General → Workflow permissions の
    「Allow GitHub Actions to create and approve pull requests」）が必要。無効のままだと、ブランチを push した
    あとの `gh pr create` だけが失敗する
+5. 同じブランチ名が既にある場合の扱いは次のとおり。PR があれば何もしない。PR が無く workflow が作った
+   コミットだけが残っている（PR 作成に失敗した残骸）なら、確認した SHA を lease にして作り直す。
+   人が push したブランチなら上書きせず見送る（手で版を上げている途中はそちらを優先する）
 
 ## ディレクトリ構成
 
