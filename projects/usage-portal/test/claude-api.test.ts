@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
-import type { ClaudeRefreshMode, ClaudeRefreshResult } from "../src/server/claude/service";
+import type { ClaudeRefreshMode, ClaudeRefreshResult, ClaudeResetCreditsResult } from "../src/server/claude/service";
 import { buildHealthReport } from "../src/server/health";
 import {
   EMPTY_USAGE,
@@ -21,12 +21,20 @@ const ORIGIN = "http://localhost";
 const BASE_TIME = 1_800_000_000_000;
 const dirs: string[] = [];
 
-function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise<boolean> } = {}) {
+function harness(
+  options: {
+    result?: ClaudeRefreshResult;
+    resetResult?: ClaudeResetCreditsResult;
+    logout?: () => Promise<boolean>;
+  } = {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-claude-api-"));
   const auth = createAuthService({ dataDir, now: () => BASE_TIME });
   const modes: ClaudeRefreshMode[] = [];
   const logouts: number[] = [];
+  const resets: ClaudeResetCreditsResult[] = [];
   const result = options.result ?? { state: "refreshed" as const };
+  const resetResult = options.resetResult ?? { state: "refreshed" as const };
 
   dirs.push(dataDir);
   auth.ensureSessionKey();
@@ -40,6 +48,11 @@ function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise
         modes.push(mode);
 
         return result;
+      },
+      resetCredits: async () => {
+        resets.push(resetResult);
+
+        return resetResult;
       },
       logout: async () => {
         logouts.push(logouts.length + 1);
@@ -56,7 +69,7 @@ function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise
     clientKey: () => "test-client",
   });
 
-  return { app, dataDir, modes, logouts };
+  return { app, dataDir, modes, logouts, resets };
 }
 
 async function cookie(app: ReturnType<typeof harness>["app"]): Promise<string> {
@@ -249,5 +262,39 @@ describe("POST /api/claude/logout", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "logout_failed" });
     expect(logouts).toHaveLength(1);
+  });
+});
+
+describe("POST /api/claude/reset-credits", () => {
+  async function postReset(app: ReturnType<typeof harness>["app"], headers: Record<string, string>): Promise<Response> {
+    return await app.request(new Request(`${ORIGIN}/api/claude/reset-credits`, { method: "POST", headers }));
+  }
+
+  test("未認証は 401 で取得を起こさない", async () => {
+    const { app, resets } = harness();
+    const response = await postReset(app, { origin: ORIGIN });
+
+    expect(response.status).toBe(401);
+    expect(resets).toEqual([]);
+  });
+
+  test("同一 origin 以外は 403 で取得を起こさない", async () => {
+    const { app, resets } = harness();
+    const session = await cookie(app);
+
+    expect((await postReset(app, { origin: "http://example.invalid", cookie: session })).status).toBe(403);
+    expect((await postReset(app, { cookie: session })).status).toBe(403);
+    expect(resets).toEqual([]);
+  });
+
+  test("同じ origin なら結果をそのまま返す", async () => {
+    const resetResult: ClaudeResetCreditsResult = { state: "failed", error: "upstream" };
+    const { app, resets } = harness({ resetResult });
+    const session = await cookie(app);
+    const response = await postReset(app, { origin: ORIGIN, cookie: session });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(resetResult);
+    expect(resets).toEqual([resetResult]);
   });
 });

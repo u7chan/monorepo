@@ -9,6 +9,7 @@ import { loadProviderUsage, openDatabase, saveProviderSnapshot, type DatabaseHan
 import { parseClaudeUsage } from "../src/server/providers/claude";
 import { BASE_TIME } from "./support";
 
+const CREDENTIAL_DIR = join(tmpdir(), "usage-portal-claude-test-credentials");
 const MINUTE = 60 * 1000;
 const USAGE_TEXT = [
   "Current session: 12% used · resets Nov 19, 12:50am (America/Los_Angeles)",
@@ -58,6 +59,8 @@ function harness(options: { auth?: unknown; usage?: string } = {}) {
   const service = createClaudeUsageService({
     db,
     cli,
+    credentialDir: CREDENTIAL_DIR,
+    userAgent: "usage-portal/test",
     now: () => clock,
     log: (message) => logs.push(message),
   });
@@ -167,6 +170,8 @@ describe("createClaudeUsageService", () => {
     const restarted = createClaudeUsageService({
       db: h.db,
       cli: h.cli,
+      credentialDir: CREDENTIAL_DIR,
+      userAgent: "usage-portal/test",
       now: () => BASE_TIME + MINUTE,
       log: () => {},
     });

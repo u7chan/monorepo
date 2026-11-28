@@ -83,6 +83,8 @@ Codex のカードは利用枠の下に「リセット枠 2回」と、枠ごと
 期限なしと確認できた枠は「期限なし」、詳細の一覧に無い枠は「期限不明」として区別する。
 クレジット残高は数値（「クレジット残高 0」）で出し、数値を読めないときだけ有無を出す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
+`⋮` の「リセット枠を取得」は通常の更新とは別で、押したときだけ回数と枠ごとの期限（「あと 13 日 期限 01/15 09:00」）を読む。
+一度も押していなければ何も出さず、0 件と取得失敗は別の文言にする。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
 カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
@@ -123,7 +125,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/auth/setup`                  | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201）                                                                                                                                                                              |
 | `POST`   | `/api/auth/login`                  | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`）                                                                                                                                                 |
 | `POST`   | `/api/auth/logout`                 | 不要 | cookie を消す（204）                                                                                                                                                                                                                                          |
-| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs`、`nextFetchAt`、Codex だけ `resetCredits` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
+| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs`、`nextFetchAt`、Codex だけ `resetCredits`、Claude だけ `claudeResetCredits` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
 | `GET`    | `/api/settings/fetch-intervals`    | 必要 | `{ intervals: { codex, "opencode-go" } }`（ミリ秒）。未設定の provider は既定値                                                                                                                                                                               |
 | `PUT`    | `/api/settings/fetch-intervals`    | 必要 | `{ "provider": "codex", "minutes": 10 }`。5 / 10 / 30 / 60 / 120 以外は 400。サーバー全体に効く                                                                                                                                                              |
 | `GET`    | `/api/codex/auth`                  | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態                                                                                                                                                                                                 |
@@ -142,7 +144,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
 | `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（200 `{ ok }`）。停止中でも再開できる。未知の id は 404                                                                                                                                                                  |
 | `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける。ログアウト中は `skipped: logout` |
-| `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot と error を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
+| `POST`   | `/api/claude/reset-credits`        | 必要 | 押されたときだけリセット枠を読む。`{ state: "refreshed" \| { state: "skipped", reason: "logout" } \| { state: "failed", error } }`。通常の更新とは別の入口 |
+| `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot・error・リセット枠を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
 | `GET`    | `/api/claude/start`                | 必要 | 開始予約の設定・オン / オフ・連続失敗の数・停止の理由・次の開始・直近 20 件の履歴 |
 | `PUT`    | `/api/claude/start`                | 必要 | 予約の設定を保存（オン / オフは変えない）。不正な入力は 400 `invalid_request` |
 | `PUT`    | `/api/claude/start/enabled`        | 必要 | `{ "enabled": boolean }`。オンに戻すと連続失敗の数と停止の理由を消す。設定が無ければ 409 `not_configured` |

@@ -31,6 +31,7 @@ function source(id: string, state: ProviderState, meters: UsageWindow[]): UsageS
     windows: meters,
     notes: [],
     resetCredits: null,
+    claudeResetCredits: null,
     trends: [],
   };
 }
