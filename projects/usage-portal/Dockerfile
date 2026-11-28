@@ -1,5 +1,5 @@
 # HTML import (バンドラ) と bun:sqlite に依存するので、Node.js へは寄せずに Bun を使う。final にも Node.js は入れない。
-# 1.4.4 は 2026-11 時点の修正済み安定版 (`latest` と同一 digest)。可変タグのままだと同じコミットでも
+# 1.4.5 は 2026-11 時点の修正済み安定版。可変タグのままだと同じコミットでも
 # 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含むマルチ
 # アーキテクチャの manifest index で、プラットフォーム別 manifest ではない。通常版と slim 版で digest は別。
 # ARG で共通化すると Dependabot の docker 更新が FROM 行のリテラルを書き換えられないので、値を各 FROM 行に書く。

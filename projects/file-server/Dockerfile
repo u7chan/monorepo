@@ -2,8 +2,8 @@
 # base stage
 # -----------------------------------------------
 # Bun は final の実行バイナリ、Node.js はベース OS と `node` コマンドのために含む。どちらも可変タグ
-# (`alpine`) のままだと同じコミットの再ビルドで中身が変わるため、版と digest で固定する。1.4.4 は
-# Node2Shell の修正が入る最初の Bun 安定版、26.13.1 は 2026-11 の Node.js セキュリティリリース版。
+# (`alpine`) のままだと同じコミットの再ビルドで中身が変わるため、版と digest で固定する。1.4.5 は
+# Node2Shell の修正を含む Bun 安定版、26.13.1 は 2026-11 の Node.js セキュリティリリース版。
 # digest は linux/amd64 と arm64 を含むマルチアーキテクチャの manifest index で、プラットフォーム別
 # manifest ではない。Bun と Node.js は別イメージなので個別に固定する。更新は Dependabot の
 # `/projects/file-server` docker エントリで受ける。アプリの実行主体は Bun のまま変えない。

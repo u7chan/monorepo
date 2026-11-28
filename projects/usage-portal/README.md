@@ -276,7 +276,7 @@ PIN とセッション鍵は環境変数では渡さない。
 ## Docker
 
 `test` ステージは `bun install --frozen-lockfile` の後に `bun run check` を実行する。`final` ステージは非 root（uid/gid 1000）で `bun src/server.ts` を起動する。
-どちらも `oven/bun` のパッチ版（1.4.4 / 1.4.4-slim）を digest で固定している。
+どちらも `oven/bun` のパッチ版（1.4.5 / 1.4.5-slim）を digest で固定している。
 
 `final` には公式 Claude Code CLI を、`downloads.claude.ai` の版固定バイナリを公式 manifest の checksum で検証して入れる
 （ビルド時に約 370 MB を取得する）。バイナリは root 所有の 0755 で置き、実行ユーザーからは書き換えられない。
