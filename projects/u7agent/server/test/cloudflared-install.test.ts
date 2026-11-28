@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { processStartedAtMs } from "../src/proc-stat";
 
 const installer = await import(new URL("../../scripts/install-cloudflared.mjs", import.meta.url).href);
 
@@ -159,6 +160,64 @@ test("配置先が書き込み先への symlink でも、実体で判定して�
     );
     assert.deepEqual(fetch.urls, []);
     assert.deepEqual(await readdir(writable), []);
+  });
+});
+
+test("取得中に書き込み root の実体が配置先を含むよう変わったら、検証も公開もしない", async () => {
+  await withDest(async (dest, root) => {
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+    let verified = 0;
+    const fetchImpl = async () => {
+      await rm(workspace, { recursive: true, force: true });
+      await symlink(root, workspace);
+      return new Response(BINARY, { status: 200 });
+    };
+    await assert.rejects(
+      installer.installCloudflared({
+        ...base(dest),
+        rootCwd: workspace,
+        fetchImpl,
+        verifyVersion: async () => {
+          verified += 1;
+          return `cloudflared version ${VERSION}`;
+        },
+      }),
+      /エージェントの書き込める場所/,
+    );
+    assert.equal(verified, 0, "古い root の一覧で実行しない");
+    assert.deepEqual(await readdir(dest), [], "一時ファイルも残さない");
+  });
+});
+
+test("ロックの持ち主が生きているあいだは待ち、持ち主が居なければ外して取る", async () => {
+  await withDest(async (dest) => {
+    await mkdir(dest, { recursive: true });
+    const lock = join(dest, ".install.lock");
+    const mine = { pid: process.pid, startedAtMs: (await processStartedAtMs(process.pid)) ?? 0 };
+    await writeFile(lock, JSON.stringify(mine));
+    const waiting = stubFetch(BINARY);
+    await assert.rejects(
+      installer.installCloudflared({
+        ...base(dest),
+        fetchImpl: waiting.fetchImpl,
+        lockWaitMs: 100,
+        lockPollMs: 10,
+      }),
+      /ロックを取れません/,
+    );
+    assert.deepEqual(waiting.urls, [], "持ち主が生きているあいだは取得しない");
+
+    await writeFile(lock, JSON.stringify({ pid: 2 ** 22, startedAtMs: 1 }));
+    const taking = stubFetch(BINARY);
+    const result = await installer.installCloudflared({
+      ...base(dest),
+      fetchImpl: taking.fetchImpl,
+      lockWaitMs: 1000,
+      lockPollMs: 10,
+    });
+    assert.equal(result.installed, true, "持ち主が居なければ外して取る");
+    assert.deepEqual(await readdir(dest), ["cloudflared"]);
   });
 });
 

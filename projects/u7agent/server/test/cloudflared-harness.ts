@@ -129,6 +129,8 @@ export interface Harness {
     ignoreSigterm: boolean;
     /** kill が拒否される (EPERM 相当。戻り値は false で、子は何も受けない) */
     killDenied?: boolean;
+    /** kill が `error` を通知する (Node の実装と同じ経路) */
+    killError?: Error;
     /** メトリクスの待受が、子のものか。既定は "yes" */
     listenerOwner?: "yes" | "no" | "unknown";
     /** 子ができた直後に呼ぶ (出力や終了を仕込む) */
@@ -211,6 +213,10 @@ export async function createHarness(
     const child = new FakeChild(
       (nextPid += 1),
       (self, signal) => {
+        if (harness.behavior.killError) {
+          setImmediate(() => self.emit("error", harness.behavior.killError));
+          return false;
+        }
         if (harness.behavior.killDenied) return false;
         if (signal === "SIGKILL") void self.exit(null, "SIGKILL");
         else if (!harness.behavior.ignoreSigterm) {
@@ -247,7 +253,6 @@ export async function createHarness(
           exe: harness.realBinary,
           argv: [call.command, ...call.args],
           cwd: call.cwd,
-          ppid: process.pid,
         }
       : {
           state: "present",
@@ -255,7 +260,6 @@ export async function createHarness(
           exe: process.execPath,
           argv: [process.execPath],
           cwd: process.cwd(),
-          ppid: 1,
         };
   };
 

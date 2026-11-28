@@ -56,7 +56,7 @@ test("待受の所有: LISTEN の inode が子の fd にあるときだけ yes",
       expected: "yes",
     },
     {
-      name: "IPv6 の ::1 だけで待ち受けていても、IPv4 の probe の繋ぎ先では yes",
+      name: "IPv6 の ::1 だけの待受は、IPv4 の probe の繋ぎ先ではない",
       proc: { tcp: [], tcp6: [line(`00000000000000000000000001000000:${HEX_PORT}`, "0A", 777)], fds: { 100: [777] } },
       pid: 100,
       expected: "no",

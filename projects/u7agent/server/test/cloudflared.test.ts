@@ -537,7 +537,6 @@ test("自分を観測できないときは、記録なしで子を起こさず u
             exe: process.execPath,
             argv: [process.execPath],
             cwd: process.cwd(),
-            ppid: 1,
           },
   });
   try {
@@ -549,6 +548,61 @@ test("自分を観測できないときは、記録なしで子を起こさず u
     assert.equal(error.kind, "unavailable");
     assert.equal(error.unavailableReason, "proc_unavailable");
     assert.equal(h.calls.length, 0, "記録の無い HOME を作らない");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("起動元のロックを取れないときは、子を起こさず unavailable にする", async () => {
+  const h = await createHarness({ acquireLock: async () => undefined });
+  try {
+    const error = await h.launch().ready.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    assert.ok(error instanceof CloudflaredLaunchError);
+    assert.equal(error.kind, "unavailable");
+    assert.equal(error.unavailableReason, "lock_unavailable");
+    assert.equal(h.calls.length, 0, "ロックなしで子を起こさない");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("子の識別情報を観測できないときは ready にせず、記録に子の pid を残す", async () => {
+  const h = await createHarness({
+    readProcess: async (pid) =>
+      pid === process.pid
+        ? {
+            state: "present",
+            startedAtMs: 1,
+            exe: process.execPath,
+            argv: [process.execPath],
+            cwd: process.cwd(),
+          }
+        : { state: "unknown" },
+  });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    h.behavior.killDenied = true;
+    const error = await h.launch().ready.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    assert.ok(error instanceof CloudflaredLaunchError);
+    assert.equal(error.kind, "unavailable");
+    assert.equal(error.unavailableReason, "proc_unavailable");
+
+    const names = await readdir(h.stateDir);
+    const recordName = names.find((name) => name.endsWith(".json"));
+    assert.ok(recordName, "記録を残す");
+    const record = JSON.parse(await readFile(join(h.stateDir, recordName), "utf8"));
+    assert.equal(record.child.pid, h.calls[0]?.child.pid, "子なしではなく、pid を記録する");
+    assert.equal(record.spawnPending, undefined);
+
+    await h.calls[0]?.child.exit(0);
+    await waitFor(async () => (await readdir(h.stateDir)).length === 0, "子が終わったあとの片付け");
   } finally {
     await h.dispose();
   }
@@ -862,7 +916,6 @@ test("掃除の観測が期限を超えたら、待ち続けずに timeout に�
             exe: process.execPath,
             argv: [process.execPath],
             cwd: process.cwd(),
-            ppid: 1,
           }
         : new Promise(() => {}),
   });
@@ -879,6 +932,33 @@ test("掃除の観測が期限を超えたら、待ち続けずに timeout に�
     );
     assert.ok(Date.now() - started < 1000, "掃除の完了を待たない");
     assert.equal(h.calls.length, 0, "期限のあとに子を起こさない");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("期限を過ぎたあとの書き込みの完了で、子を起こさない", async () => {
+  const h = await createHarness({
+    deadlineMs: 100,
+    mkdir: (async (path: Parameters<typeof mkdir>[0], options?: Parameters<typeof mkdir>[1]) => {
+      if (String(path).includes("home-")) {
+        // イベントループを止めて、期限のタイマーより先に書き込みを終わらせる
+        const until = performance.now() + 250;
+        while (performance.now() < until) {
+          // 待つ
+        }
+      }
+      return mkdir(path, options);
+    }) as typeof mkdir,
+  });
+  try {
+    const started = performance.now();
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
+    );
+    assert.ok(performance.now() - started < 1000);
+    assert.equal(h.calls.length, 0, "期限のあとに spawn しない");
   } finally {
     await h.dispose();
   }
@@ -943,6 +1023,44 @@ test("/quicktunnel が 200 でない応答は、本文が正しくても採ら�
       h.launch().ready,
       (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
     );
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("応答を採る直前の所有確認が no になったら、ready にしない", async () => {
+  let calls = 0;
+  const h = await createHarness({ deadlineMs: 250, listenerOwner: async () => (++calls === 1 ? "yes" : "no") });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
+    );
+    assert.ok(calls >= 2, "応答のあとにもう一度確かめる");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("kill が error (EPERM) を通知しても、記録と専用 HOME を残す", async () => {
+  const h = await createHarness({ stopGraceMs: 40, killWaitMs: 40 });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    const handle = h.launch();
+    await handle.ready;
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+
+    h.behavior.killError = Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+    await handle.stop();
+    assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+    assert.equal((await readdir(h.stateDir)).length, 2, "送れなかった子の記録は残す");
+
+    await child.exit(0);
+    await waitFor(async () => (await readdir(h.stateDir)).length === 0, "子が終わったあとの片付け");
   } finally {
     await h.dispose();
   }
