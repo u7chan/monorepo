@@ -194,7 +194,6 @@ export type ServeTunnelStartResult =
   | { kind: "cancelled" }
   | { kind: "failed"; error: string; conflict: boolean };
 
-/** 利用不可が確定していて共有も無い間は、取得しても変わらないので省く。再読み込みで再開する */
 export function shouldSkipServeTunnelFetch(status: ServeTunnelStatus | null): boolean {
   return status !== null && !status.available && status.state === "idle";
 }
