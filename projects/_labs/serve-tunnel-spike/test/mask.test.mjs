@@ -10,7 +10,7 @@ test("masks tunnel hostnames and IP addresses", () => {
   assert.equal(mask("2001:db8:::"), "<ipv6>:");
   assert.equal(mask("2001:db8::1"), "<ipv6>");
   assert.equal(mask("::1"), "<ipv6>");
-  assert.equal(mask("fe80::215:5dff:fe0a:a280"), "<ipv6>");
+  assert.equal(mask("fe80::1234:5678:9abc:def0"), "<ipv6>");
   assert.equal(mask("2001:db8::1234:192.0.2.9"), "<ipv6>");
   assert.equal(mask("2001:db8::192.0.2.9"), "<ipv6>");
   assert.equal(mask("::ffff:192.0.2.1"), "<ipv6>");
