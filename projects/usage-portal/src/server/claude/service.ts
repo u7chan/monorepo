@@ -198,6 +198,8 @@ export function createClaudeUsageService(options: {
   }
 
   async function attemptResetCredits(startedAtGeneration: number): Promise<ClaudeResetCreditsResult> {
+    // 版の読み取りは資格情報にも上流にも触れないので cooldown に載せない。先に済ませてから in-flight を取る。
+    const userAgent = await resolveResetCreditsUserAgent();
     const running = inFlight;
 
     // CLI が credentials を書き換えている間は読まない。終わってから token を読み直す。
@@ -205,7 +207,10 @@ export function createClaudeUsageService(options: {
       await running.catch(() => undefined);
     }
 
-    const userAgent = await resolveResetCreditsUserAgent();
+    // 待っている間にログアウトが終わっていれば、資格情報も要求先も無い。
+    if (startedAtGeneration !== generation) {
+      return { state: "skipped", reason: "logout" };
+    }
 
     let read = await requestClaudeResetCredits({
       credentialDir: options.credentialDir,
@@ -251,7 +256,8 @@ export function createClaudeUsageService(options: {
       log("claude: リセット枠の失敗を保存できませんでした");
     }
 
-    log(`claude: reset credits ${failure.code} (${failure.message})`);
+    // 拒否の理由は固定の語彙だけを出す。生値や応答本文はログへ出さない。
+    log(`claude: reset credits ${failure.code} (${read.kind === "rejected" ? read.rejection : failure.message})`);
 
     return { state: "failed", error: failure.code };
   }
@@ -312,6 +318,8 @@ function resetCreditsError(read: Exclude<ClaudeResetCreditsRead, { kind: "ok" }>
       return new ProviderError("reauth_required", "Claude のサインインの期限が切れています");
     case "schema":
       return new ProviderError("schema", "Claude のリセット枠を解釈できませんでした");
+    case "rejected":
+      return new ProviderError("upstream", "Claude からリセット枠を取得できませんでした");
     default:
       return new ProviderError("upstream", "Claude からリセット枠を取得できませんでした");
   }

@@ -54,6 +54,7 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - token は保存・ログ・応答に出さない。refresh は CLI に任せ、Portal は credentials を書き換えない。
   access token が無い・失効・401 のときは `/usage` を 1 回だけ実行して更新し、同じ要求を 1 回だけやり直す。
   CLI の起動は通常の手動更新と同じ 60 秒の間隔に従い、cooldown 中は起動せずに読み直しだけで判断する。
+  UA に載せる版を読む `claude --version` は、上流にも資格情報にも触れないのでこの間隔の対象外にする。
 - 取得は画面のメニュー「リセット枠を取得」からだけ行う。周期取得にも、画面を開いたときの `/usage` にも乗せない。
   通常の `/usage` と同時に走らせないよう、Claude の取得と同じ single-flight に直列化する。
 - 認証は `Authorization: Bearer <access>` と `anthropic-beta: oauth-2025-04-20`。`?cedar_ember=1` を付けないと
@@ -64,11 +65,14 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - `grants[]` のうち `resets_left > 0` かつ `ends_at > now` を採用する。回数は `resets_left` の合計、期限は
   `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。期限の無い grant（`ends_at: null`）は
   今の表示モデルで表せないため対象外にする。
-- 0 件とするのは `eligible: false` のときと、`grants[]` が空・未設定のときだけ。ただし `eligible: false` でも
-  `ineligible_reason` が `surface` / `cli_version` のときは「このクライアントには返さない」という拒否であり、
-  grant が 0 件なのではないため取得失敗にする（UA の漏れで前回の値が 0 件に化けた）。`cedar_ember` が null、
+- 0 件とするのは、`eligible: false` の `ineligible_reason` が `config_off` / `tier` / `seat` / `no_grant` / `tenure` /
+  `other_experiment` のとき（アカウントか設定の理由で grant が無い）と、`grants[]` が空・未設定のときだけ。
+  `surface` / `cli_version` / `mobile`（クライアントの拒否）、`unavailable`（一時的に判定できない）、未知の理由、
+  理由の欠落は取得失敗にする（知らない理由を 0 件へ倒すと前回の値が黙って消える）。`cedar_ember` が null、
   行や `ends_at` の形が読めない応答（キーの欠落を含む）も、0 件ではなく取得失敗として扱う
   （前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
+- 拒否の理由は固定の語彙（`surface` / `cli_version` / `mobile` / `unavailable` / `unknown`）だけをログに出し、
+  応答本文や token は出さない。
 - `cedar_ember` の形が変わったら adapter を直す。
 - 結果は `/usage` の snapshot とは別の 1 行（`claude_reset_credits`）に保存し、通常の更新で消えないようにする。
   取得失敗は前回の値を残して error だけを更新し、ログアウトで行ごと消す。
@@ -146,6 +150,8 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - `stale` は取得から 15 分を超えたときに切り替える。`decideProviderState` は provider ごとの閾値を受け取る。
 - 出力は公開契約ではない。文面が変わったら `schema` エラーになる。fixture を年付きの出力まで含めて固定する。
 - image は CLI のぶん大きくなる。ログインには期限（`loginExpiresAt`、約 30 日）がある。
+- リセット枠の可否は上流の UA surface 判定に依存する。UA を CLI に寄せているため、判定が変わると取得できなくなる
+  （その場合も前回の値は残し、拒否の理由をログに出す）。
 - 規約の解釈は変わり得る。公式 CLI を未改変で使い、自分のアカウントだけを対象にする前提が崩れる変更（共有、
   複数アカウント、バイナリの改変、トークンの直接利用）は、この決定を見直してから行う。
 - `auth status` が実行時にネットワークへ出るかは未確認。出るなら取得の前段に置く設計を見直す。

@@ -61,7 +61,7 @@ export function parseClaudeVersion(stdout: string): string | null {
   return match?.[1] ?? null;
 }
 
-/** 版は UA の飾りにしか使わないので、起こせない・読めないは失敗にせず null へ丸める。 */
+/** 版は UA に載せるためだけに読む。読めなくても他へ影響しないので、失敗は null へ丸める。 */
 export async function readClaudeVersion(cli: ClaudeCli): Promise<string | null> {
   try {
     return parseClaudeVersion(await cli.run(CLAUDE_VERSION_ARGS));
