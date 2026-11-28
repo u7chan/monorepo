@@ -97,7 +97,7 @@ test("GET は状態を 200 で返し、キャッシュさせない", async () =>
   }
 });
 
-test("GET は Origin も Sec-Fetch-Site も無い要求でも読める", async () => {
+test("GET は cross-site の印が付いていても読める (ガードを掛けない)", async () => {
   const tunnel = fakeTunnel();
   const bff = await openBff(tunnel);
   try {
