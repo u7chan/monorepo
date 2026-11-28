@@ -46,7 +46,9 @@ CLI の非対話実行を自動で起こすことがどう扱われるかは確�
   manifest は最新版だけを指すため、版を上げるときは両 arch の URL と SHA-512 を写し直し、fixture を実際の出力と
   突き合わせる。
 - 子プロセスには `PATH` / `HOME`（`CREDENTIAL_DIR/antigravity`）/ `TZ=UTC` / `AGY_CLI_DISABLE_AUTO_UPDATE=1` だけを渡し、
-  cwd は空の一時ディレクトリ、stdin は閉じる。期限は 15 秒で、超えたら SIGKILL する。
+  cwd は空の一時ディレクトリ、stdin は閉じる。期限は 15 秒で、超えたら SIGKILL する。期限は子の終了ではなく
+  出力の読み取りの終了まで効かせる。直接の子が先に終わっても、孫が pipe を掴んでいれば読み取りは終わらず、
+  ログアウトが待つ進行中の取得が解決しなくなるため。
 
 ### 取得の契機
 
@@ -85,7 +87,9 @@ CLI の非対話実行を自動で起こすことがどう扱われるかは確�
   4. `agy models` を 1 回実行する。`not_connected` なら snapshot と error を消し（sample は残す）、手動更新の
      60 秒の下限を戻して 204。connected のままなら状態を残して 409 `logout_incomplete`。それ以外なら状態を残して
      503 `logout_failed`。もう一度実行すると、ENOENT から同じ確認に進む。
-- 応答の上限は、進行中の取得（最大 30 秒）と確認（15 秒）を足した 45 秒。
+- 応答の上限は、進行中の取得（最大 30 秒）と確認（15 秒）を足した 45 秒。`Bun.serve` の `idleTimeout` は既定の
+  10 秒だと応答の前に接続が切られ、画面が結果を受け取れない。60 秒に上げる（`SERVER_IDLE_TIMEOUT_SECONDS`）。
+  最大 30 秒の `POST /api/gemini/refresh` も同じ理由で要る。
 - Claude のログアウトは変えない。Claude でも logout 後に資格情報が戻る事象が出たら、別途同じ待ち方を検討する。
 
 ## 採用しない案

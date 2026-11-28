@@ -200,6 +200,20 @@ describe("既定の spawn", () => {
     await expect(cli.run([])).rejects.toMatchObject({ reason: "spawn" });
   });
 
+  test("直接の子が期限前に終了しても、孫が pipe を掴んでいれば期限で timeout にする", async () => {
+    const cli = createGeminiCli({
+      credentialDir: tempDir(),
+      binary: "sh",
+      timeoutMs: 300,
+      env: { PATH: process.env.PATH },
+    });
+    const startedAt = Date.now();
+
+    // sh はすぐ終わるが、背景の sleep が stdout / stderr を掴んだまま 3 秒残る。
+    await expect(cli.run(["-c", "sleep 3 &"])).rejects.toMatchObject({ reason: "timeout" });
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+
   test("期限を過ぎたとき、孫プロセスが pipe を掴んでいても待ち続けない", async () => {
     const cli = createGeminiCli({ credentialDir: tempDir(), binary: "sh", timeoutMs: 200 });
     const startedAt = Date.now();

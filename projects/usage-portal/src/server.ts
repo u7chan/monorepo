@@ -12,7 +12,7 @@ import { createGeminiCli } from "./server/gemini/cli";
 import { createGeminiUsageService } from "./server/gemini/service";
 import { createFetchIntervalStore } from "./server/fetch-intervals";
 import { codexSourceId } from "./server/codex/source";
-import { loadConfig } from "./server/config";
+import { loadConfig, SERVER_IDLE_TIMEOUT_SECONDS } from "./server/config";
 import { prepareCredentialDir } from "./server/credential-dir";
 import {
   deleteLegacyOpenCodeUsage,
@@ -236,6 +236,7 @@ const app = createApp({
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
+  idleTimeout: SERVER_IDLE_TIMEOUT_SECONDS,
   development: config.development,
   routes: {
     "/": index,

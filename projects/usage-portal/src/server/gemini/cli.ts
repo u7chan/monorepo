@@ -116,7 +116,11 @@ function childEnv(base: Record<string, string | undefined>, homeDir: string): Re
   return env;
 }
 
-/** 期限を過ぎたら SIGKILL。SIGTERM は無視され得るため、出力の読み取りを閉じられなくなる。 */
+/**
+ * 期限を過ぎたら SIGKILL。SIGTERM は無視され得るため、出力の読み取りを閉じられなくなる。
+ * 期限は子の終了ではなく出力の読み取り終了まで効かせる。直接の子が先に終わっても、孫が pipe を掴んでいれば
+ * 読み取りは終わらず、ログアウトが待つ進行中の取得が解決しなくなるため。
+ */
 const spawnGemini: SpawnGemini = async (command, args, options) => {
   const child = Bun.spawn([command, ...args], {
     cwd: options.cwd,
@@ -125,27 +129,30 @@ const spawnGemini: SpawnGemini = async (command, args, options) => {
     stdout: "pipe",
     stderr: "pipe",
   });
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    child.kill("SIGKILL");
-  }, options.timeoutMs);
-
-  const stdout = new Response(child.stdout).text();
-  const stderr = new Response(child.stderr).text();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve("timeout");
+    }, options.timeoutMs);
+  });
+  const finished = Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]).then(([stdout, stderr, exitCode]) => ({ exitCode, stdout, stderr }));
 
   try {
-    const exitCode = await child.exited;
+    const outcome = await Promise.race([finished, deadline]);
 
-    if (timedOut) {
-      // 孫プロセスが pipe を掴んだままでも、期限を過ぎた結果は待たない。
-      void stdout.catch(() => undefined);
-      void stderr.catch(() => undefined);
+    if (outcome === "timeout") {
+      // 読み取りは待たない。孫が pipe を閉じたときに、捨てた promise の失敗が未処理にならないようにする。
+      void finished.catch(() => undefined);
 
-      return { exitCode, stdout: "", stderr: "", timedOut: true };
+      return { exitCode: null, stdout: "", stderr: "", timedOut: true };
     }
 
-    return { exitCode, stdout: await stdout, stderr: await stderr, timedOut: false };
+    return { ...outcome, timedOut: false };
   } finally {
     clearTimeout(timer);
   }
