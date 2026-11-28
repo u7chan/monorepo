@@ -65,6 +65,7 @@ function harness(options: { token?: string; expiresAt?: number } = {}) {
   return {
     service,
     db,
+    dataDir,
     calls,
     logs,
     advance: (ms: number) => {
@@ -147,6 +148,20 @@ describe("resetCredits", () => {
       capturedAt: NOW - MINUTE,
       error: { code: "reauth_required", message: "Claude のサインインの期限が切れています", at: NOW },
     });
+  });
+
+  test("CLI の更新は手動更新と同じ 60 秒の間隔に従う", async () => {
+    const h = harness();
+
+    await expect(h.service.refresh("manual")).resolves.toEqual({ state: "refreshed" });
+
+    const callsAfterRefresh = h.calls.length;
+
+    // 直後の操作で token が失効していても、cooldown 中は CLI を起こさない。
+    writeCredential(h.dataDir, "token-expired", NOW - MINUTE);
+
+    await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "reauth_required" });
+    expect(h.calls.length).toBe(callsAfterRefresh);
   });
 
   test("上流エラーと形の変化は、0 件ではなく固定の失敗として残す", async () => {

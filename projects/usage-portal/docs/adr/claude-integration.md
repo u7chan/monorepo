@@ -53,14 +53,17 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
   この 1 経路だけ、`CREDENTIAL_DIR/claude/.credentials.json` の access token をメモリ上で読む例外とする。
 - token は保存・ログ・応答に出さない。refresh は CLI に任せ、Portal は credentials を書き換えない。
   access token が無い・失効・401 のときは `/usage` を 1 回だけ実行して更新し、同じ要求を 1 回だけやり直す。
+  CLI の起動は通常の手動更新と同じ 60 秒の間隔に従い、cooldown 中は起動せずに読み直しだけで判断する。
 - 取得は画面のメニュー「リセット枠を取得」からだけ行う。周期取得にも、画面を開いたときの `/usage` にも乗せない。
   通常の `/usage` と同時に走らせないよう、Claude の取得と同じ single-flight に直列化する。
 - 認証は `Authorization: Bearer <access>` と `anthropic-beta: oauth-2025-04-20`。`?cedar_ember=1` を付けないと
   `cedar_ember` は `null` で返る。
 - `grants[]` のうち `resets_left > 0` かつ `ends_at > now` を採用する。回数は `resets_left` の合計、期限は
-  `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。
-- `cedar_ember: null` は 0 件、形が読めない応答は 0 件ではなく取得失敗として扱う。`label` などの自由文は保存・
-  表示しない。`cedar_ember` の形が変わったら adapter を直す。
+  `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。期限の無い grant（`ends_at: null`）は
+  今の表示モデルで表せないため対象外にする。
+- `eligible: false` だけを 0 件とする。`cedar_ember` が null、または `grants[]` の行が読めない応答は、0 件ではなく
+  取得失敗として扱う（前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
+- `cedar_ember` の形が変わったら adapter を直す。
 - 結果は `/usage` の snapshot とは別の 1 行（`claude_reset_credits`）に保存し、通常の更新で消えないようにする。
   取得失敗は前回の値を残して error だけを更新し、ログアウトで行ごと消す。
 

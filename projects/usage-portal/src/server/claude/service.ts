@@ -195,16 +195,18 @@ export function createClaudeUsageService(options: {
     });
 
     if (read.kind === "needs_credential" || read.kind === "unauthorized") {
-      const refreshed = await refresh("schedule");
+      // 画面から押された要求なので、通常の手動更新と同じ 60 秒の間隔に従う。
+      const refreshed = await refresh("manual");
 
       if (refreshed.state === "failed") {
         return { state: "failed", error: refreshed.error };
       }
 
-      if (refreshed.state === "skipped") {
+      if (refreshed.state === "skipped" && refreshed.reason === "logout") {
         return { state: "skipped", reason: "logout" };
       }
 
+      // cooldown 中でも直近の更新で token が新しくなっていることがある。読み直して判断する。
       read = await requestClaudeResetCredits({
         credentialDir: options.credentialDir,
         userAgent: options.userAgent,

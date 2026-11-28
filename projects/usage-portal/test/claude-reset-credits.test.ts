@@ -65,14 +65,12 @@ describe("parseClaudeResetCredits", () => {
     });
   });
 
-  test("0 回・期限切れ・読めない行は数えない", () => {
+  test("0 回・期限切れ・期限なしの grant は数えない（形は読めている）", () => {
     const credits = parseClaudeResetCredits(
       cedar([
         { resets_left: 0, ends_at: new Date(NOW + 10 * MINUTE).toISOString() },
         { resets_left: 1, ends_at: new Date(NOW - MINUTE).toISOString() },
-        { resets_left: 1, ends_at: "not-a-date" },
-        { ends_at: new Date(NOW + 10 * MINUTE).toISOString() },
-        "not-an-object",
+        { resets_left: 1, ends_at: null },
       ]),
       NOW,
     );
@@ -80,14 +78,31 @@ describe("parseClaudeResetCredits", () => {
     expect(credits).toEqual({ available: 0, expiries: [] });
   });
 
-  test("cedar_ember が null なら 0 件、形が読めなければ null", () => {
-    expect(parseClaudeResetCredits(cedar(null), NOW)).toEqual({ available: 0, expiries: [] });
-    expect(parseClaudeResetCredits({ cedar_ember: { grants: undefined } }, NOW)).toEqual({
+  test("grant の形が読めなければ、0 件ではなく取得失敗にする", () => {
+    const valid = { resets_left: 1, ends_at: new Date(NOW + 10 * MINUTE).toISOString() };
+
+    expect(parseClaudeResetCredits(cedar([{ ...valid, resets_left: "1" }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ ...valid, resets_left: 1.5 }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ ...valid, resets_left: -1 }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ ...valid, ends_at: 123 }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ ...valid, ends_at: "not-a-date" }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ ends_at: valid.ends_at }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar(["not-an-object"]), NOW)).toBeNull();
+  });
+
+  test("eligible: false だけを 0 件とし、null や欠損は取得失敗にする", () => {
+    expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, grants: [] } }, NOW)).toEqual({
       available: 0,
       expiries: [],
     });
+    expect(parseClaudeResetCredits({ cedar_ember: { eligible: true, grants: undefined } }, NOW)).toEqual({
+      available: 0,
+      expiries: [],
+    });
+    expect(parseClaudeResetCredits(cedar(null), NOW)).toBeNull();
     expect(parseClaudeResetCredits({}, NOW)).toBeNull();
-    expect(parseClaudeResetCredits({ cedar_ember: { grants: {} } }, NOW)).toBeNull();
+    expect(parseClaudeResetCredits({ cedar_ember: { grants: [] } }, NOW)).toBeNull();
+    expect(parseClaudeResetCredits({ cedar_ember: { eligible: true, grants: {} } }, NOW)).toBeNull();
     expect(parseClaudeResetCredits(null, NOW)).toBeNull();
   });
 });

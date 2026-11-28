@@ -60,7 +60,8 @@ export function readClaudeAccessToken(credentialDir: string, now: number): strin
 
 /**
  * 詳細 API の応答から、残っている grant だけを読む。
- * `cedar_ember: null` は「枠なし」、形が読めない応答は null（取得失敗）として区別する。
+ * `eligible: false` だけが「枠なし」。`cedar_ember` や grant の形が読めない応答は、
+ * 0 件ではなく null（取得失敗）にして、前回の値を 0 件で上書きしない。
  */
 export function parseClaudeResetCredits(body: unknown, now: number): ClaudeResetCreditsValue | null {
   if (typeof body !== "object" || body === null) {
@@ -69,15 +70,22 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
 
   const cedar = (body as Record<string, unknown>).cedar_ember;
 
-  if (cedar === null) {
-    return { available: 0, expiries: [] };
-  }
-
-  if (typeof cedar !== "object") {
+  if (typeof cedar !== "object" || cedar === null) {
     return null;
   }
 
-  const grants = (cedar as Record<string, unknown>).grants;
+  const status = cedar as Record<string, unknown>;
+
+  // 実験の対象外は明示的に eligible: false が返る。null はクエリやフィールドの変化とみなす。
+  if (typeof status.eligible !== "boolean") {
+    return null;
+  }
+
+  if (!status.eligible) {
+    return { available: 0, expiries: [] };
+  }
+
+  const grants = status.grants;
 
   if (grants === undefined || grants === null) {
     return { available: 0, expiries: [] };
@@ -92,23 +100,39 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
 
   for (const grant of grants) {
     if (typeof grant !== "object" || grant === null) {
-      continue;
+      return null;
     }
 
     const record = grant as Record<string, unknown>;
     const left = record.resets_left;
-    const endsAt = readTime(record.ends_at);
 
-    // 読めない行は数えない。0 回と混同しないよう、合計は読めた行だけで作る。
-    if (typeof left !== "number" || !Number.isFinite(left) || endsAt === null) {
+    // resets_left は必須の整数。改名・型変化は「0 件」ではなく schema の変化として扱う。
+    if (typeof left !== "number" || !Number.isInteger(left) || left < 0) {
+      return null;
+    }
+
+    const rawEndsAt = record.ends_at;
+
+    // 期限の無い grant は今の表示モデル（期限の一覧）で表せないため対象外にする。
+    if (rawEndsAt === null || rawEndsAt === undefined) {
       continue;
     }
 
-    if (left <= 0 || endsAt <= now) {
+    if (typeof rawEndsAt !== "string") {
+      return null;
+    }
+
+    const endsAt = Date.parse(rawEndsAt);
+
+    if (!Number.isFinite(endsAt)) {
+      return null;
+    }
+
+    if (left === 0 || endsAt <= now) {
       continue;
     }
 
-    available += Math.trunc(left);
+    available += left;
     expiries.push(endsAt);
   }
 
@@ -152,14 +176,4 @@ export async function requestClaudeResetCredits(options: {
   const credits = parseClaudeResetCredits(response.json, options.now());
 
   return credits === null ? { kind: "schema" } : { kind: "ok", credits };
-}
-
-function readTime(value: unknown): number | null {
-  if (typeof value !== "string" || value === "") {
-    return null;
-  }
-
-  const at = Date.parse(value);
-
-  return Number.isFinite(at) ? at : null;
 }
