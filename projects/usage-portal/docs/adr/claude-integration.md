@@ -67,8 +67,8 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
   今の表示モデルで表せないため対象外にする。
 - 0 件とするのは、`eligible: false` の `ineligible_reason` が `config_off` / `tier` / `seat` / `no_grant` / `tenure` /
   `other_experiment` のとき（アカウントか設定の理由で grant が無い）と、`grants[]` が空・未設定のときだけ。
-  `surface` / `cli_version` / `mobile`（クライアントの拒否）、`unavailable`（一時的に判定できない）、未知の理由、
-  理由の欠落は取得失敗にする（知らない理由を 0 件へ倒すと前回の値が黙って消える）。`cedar_ember` が null、
+  `surface` / `cli_version`（クライアントの拒否）、`mobile`（クライアント側の理由と見なす）、`unavailable`
+  （一時的に判定できない）、未知の理由、理由の欠落は取得失敗にする（知らない理由を 0 件へ倒すと前回の値が黙って消える）。`cedar_ember` が null、
   行や `ends_at` の形が読めない応答（キーの欠落を含む）も、0 件ではなく取得失敗として扱う
   （前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
 - 拒否の理由は固定の語彙（`surface` / `cli_version` / `mobile` / `unavailable` / `unknown`）だけをログに出し、

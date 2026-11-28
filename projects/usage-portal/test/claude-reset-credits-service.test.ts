@@ -33,6 +33,8 @@ function harness(
     cliVersion?: string | null;
     /** `--version` をここで止めて、待っている間の操作を固定する。 */
     versionGate?: Promise<void>;
+    /** `/usage` をここで止めて、実行中の重なり方を固定する。 */
+    usageGate?: Promise<void>;
   } = {},
 ) {
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-claude-reset-service-"));
@@ -40,6 +42,7 @@ function harness(
   const calls: string[][] = [];
   const logs: string[] = [];
   let clock = NOW;
+  let usageRunning = false;
 
   dirs.push(dataDir);
   handles.push(db);
@@ -65,10 +68,18 @@ function harness(
         return JSON.stringify(AUTH_OK);
       }
 
-      // `/usage` を通したら CLI が token を更新した、という状況を作る。
-      writeCredential(dataDir, "token-refreshed", NOW + 60 * MINUTE);
+      usageRunning = true;
 
-      return JSON.stringify({ result: USAGE_TEXT });
+      try {
+        await options.usageGate;
+
+        // `/usage` を通したら CLI が token を更新した、という状況を作る。
+        writeCredential(dataDir, "token-refreshed", NOW + 60 * MINUTE);
+
+        return JSON.stringify({ result: USAGE_TEXT });
+      } finally {
+        usageRunning = false;
+      }
     },
   };
 
@@ -93,6 +104,7 @@ function harness(
     setCliVersion: (value: string | null) => {
       cliVersion = value;
     },
+    usageRunning: () => usageRunning,
   };
 }
 
@@ -242,6 +254,43 @@ describe("resetCredits", () => {
       "claude-cli/2.1.332 (external, cli) usage-portal/test",
     ]);
     expect(h.calls).toEqual([["--version"], ["--version"], ["--version"]]);
+  });
+
+  test("版の読み取り中に始まった /usage が終わるまで上流を読まない", async () => {
+    let releaseVersion = (): void => {};
+    let releaseUsage = (): void => {};
+    const versionGate = new Promise<void>((resolve) => {
+      releaseVersion = resolve;
+    });
+    const usageGate = new Promise<void>((resolve) => {
+      releaseUsage = resolve;
+    });
+    const h = harness({ versionGate, usageGate });
+    const usageAtFetch: boolean[] = [];
+
+    globalThis.fetch = (async () => {
+      usageAtFetch.push(h.usageRunning());
+
+      return new Response(cedar([{ resets_left: 1, ends_at: new Date(NOW + MINUTE).toISOString() }]), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const reset = h.service.resetCredits();
+
+    // 版の読み取りは同期で始まる。待っている間に手動更新が割り込む状況を作る。
+    expect(h.calls).toEqual([["--version"]]);
+
+    const refresh = h.service.refresh("manual");
+
+    releaseVersion();
+    // マイクロタスクを全部流しても、`/usage` が終わるまで fetch は出ない。
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(usageAtFetch).toEqual([]);
+
+    releaseUsage();
+
+    await expect(refresh).resolves.toEqual({ state: "refreshed" });
+    await expect(reset).resolves.toEqual({ state: "refreshed" });
+    expect(usageAtFetch).toEqual([false]);
   });
 
   test("版の読み取り中にログアウトが終わったら、上流を読まずに中止する", async () => {
