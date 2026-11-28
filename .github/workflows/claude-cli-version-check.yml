@@ -50,14 +50,17 @@ jobs:
           newest="$(printf '%s\n%s\n' "$current" "$stable" | sort -V | tail -n1)"
 
           if [ "$newest" = "$stable" ] && [ "$current" != "$stable" ]; then
-            {
-              echo "update=true"
-              echo "version=$stable"
-              echo "current=$current"
-            } >> "$GITHUB_OUTPUT"
+            update=true
           else
-            echo "update=false" >> "$GITHUB_OUTPUT"
+            update=false
           fi
+
+          {
+            echo "current=$current"
+            echo "stable=$stable"
+            echo "update=$update"
+            echo "version=$stable"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Look for an existing pull request
         id: existing
@@ -71,11 +74,24 @@ jobs:
           # open だけでなく close 済みも見る。一度見送った版を毎週作り直さないため。
           count="$(gh pr list --head "$BRANCH" --state all --json number --jq 'length')"
 
-          if [ "$count" = "0" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ "$count" != "0" ]; then
             echo "::notice::$BRANCH の PR が既にあるため作成しません"
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # PR が無いのにブランチだけある = 前回 push のあとで PR 作成が失敗した残骸。
+          # そのまま push すると non-fast-forward で毎週失敗するので、作り直す。
+          # 対象は PR を持たない workflow 自身のブランチだけに限る。
+          remote_sha="$(git ls-remote --heads origin "$BRANCH" | cut -f1)"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$remote_sha" ]; then
+            echo "::notice::$BRANCH は PR の無いまま残っているため作り直します（remote: $remote_sha）"
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+            echo "remote_sha=$remote_sha" >> "$GITHUB_OUTPUT"
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
           fi
 
       # 版を上げる前に、両アーキテクチャのバイナリが公開済みかを見る。片方だけの公開中に上げると、
@@ -124,6 +140,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CURRENT: ${{ steps.compare.outputs.current }}
           VERSION: ${{ steps.compare.outputs.version }}
+          REUSE: ${{ steps.existing.outputs.reuse }}
+          REMOTE_SHA: ${{ steps.existing.outputs.remote_sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -137,12 +155,20 @@ jobs:
             "Why: the image pins the CLI because it is shipped from downloads.claude.ai, which Dependabot cannot follow, so a weekly check is the only way to notice a new stable release."
 
           # persist-credentials を切っているので、push のときだけ token を渡す。
+          # PR の無いまま残ったブランチは、確認した SHA を lease にして上書きする（他の push があれば失敗する）。
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
-            push origin "HEAD:refs/heads/$branch"
+          if [ "$REUSE" = "true" ]; then
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              push --force-with-lease="refs/heads/$branch:$REMOTE_SHA" origin "HEAD:refs/heads/$branch"
+          else
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              push origin "HEAD:refs/heads/$branch"
+          fi
 
           # 本文は markdown なので、backtick を shell に評価させないよう変数は placeholder で埋める。
           cat > /tmp/pr-body.md <<'BODY'
+          ## Issues
+
           ## Why
 
           `projects/usage-portal` の image に入れる Claude Code CLI は `downloads.claude.ai` から版固定で取得しており、Dependabot が追えない。stable チャネルに新しい版が出たことを週次で検知し、レビューできる PR にする。
@@ -184,10 +210,24 @@ jobs:
             --body-file /tmp/pr-body.md
 
       - name: Write a summary
+        env:
+          UPDATE: ${{ steps.compare.outputs.update }}
+          CURRENT: ${{ steps.compare.outputs.current }}
+          STABLE: ${{ steps.compare.outputs.stable }}
+          SKIP: ${{ steps.existing.outputs.skip }}
+          REUSE: ${{ steps.existing.outputs.reuse }}
         run: |
           {
             echo "### Claude CLI version check"
-            echo "- pinned: \`${{ steps.compare.outputs.current || 'unchanged' }}\`"
-            echo "- stable: \`${{ steps.compare.outputs.version || 'unchanged' }}\`"
-            echo "- update: \`${{ steps.compare.outputs.update }}\`"
+            echo "- pinned: \`$CURRENT\`"
+            echo "- stable: \`$STABLE\`"
+            echo "- update: \`$UPDATE\`"
+
+            if [ "$SKIP" = "true" ]; then
+              echo "- 同名ブランチの PR が既にあるため作成しませんでした"
+            fi
+
+            if [ "$REUSE" = "true" ]; then
+              echo "- PR の無いブランチが残っていたため、作り直しました"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
