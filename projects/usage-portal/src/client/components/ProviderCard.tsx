@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import type { UsageSource } from "../api";
-import { describeAge, formatClock, formatDateTime, formatFetchInterval } from "../lib/format";
+import { describeAge, describeResetCredits, formatClock, formatDateTime, formatFetchInterval } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
@@ -37,6 +37,7 @@ export function ProviderCard(props: {
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
   const intervalLabel = formatFetchInterval(source.fetchIntervalMs);
+  const resetCredits = source.resetCredits ? describeResetCredits(source.resetCredits, props.now) : null;
   const hint = retryHint(source, intervalLabel);
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
@@ -114,6 +115,23 @@ export function ProviderCard(props: {
         <div class="up-empty">
           <p class="up-caption">{source.error ? source.error.message : "利用枠を取得できませんでした。"}</p>
           <p class="up-caption">{hint}</p>
+        </div>
+      ) : null}
+
+      {resetCredits ? (
+        <div class="up-reset-credits">
+          <p class="up-caption">{resetCredits.label}</p>
+          {resetCredits.rows.length > 0 ? (
+            <ul class="up-reset-credits-list">
+              {resetCredits.rows.map((row, index) => (
+                <li class="up-caption" key={`${row.at}:${index}`}>
+                  <span class="up-badge">{row.remaining}</span>
+                  <span class="up-nowrap">{row.at}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {resetCredits.note ? <p class="up-caption">{resetCredits.note}</p> : null}
         </div>
       ) : null}
 

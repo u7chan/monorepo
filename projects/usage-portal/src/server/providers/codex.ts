@@ -14,8 +14,11 @@ import {
 } from "./types";
 
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+export const CODEX_RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 export const CODEX_NAME = "Codex";
 const UPSTREAM_TIMEOUT_MS = 8_000;
+/** リセット枠の詳細は表示の補助。CLI と同じ 5 秒で諦め、usage の回数だけを残す。 */
+const RESET_CREDITS_TIMEOUT_MS = 5_000;
 
 /** 画面に出す plan の表記。未知の値は上流の raw をそのまま出し、勝手に別名を作らない。 */
 const PLAN_LABELS: Record<string, string> = {
@@ -79,14 +82,13 @@ export function parseCodexUsage(body: unknown, capturedAt: number): ProviderSnap
     notes.push("上限超過");
   }
 
-  if (readObject(body, "credits")?.has_credits === true) {
-    notes.push("クレジット残高あり");
-  }
-
+  const credits = readObject(body, "credits");
   const resetCredits = readNumber(readObject(body, "rate_limit_reset_credits"), "available_count");
 
-  if (resetCredits !== null && resetCredits > 0) {
-    notes.push(`リセット枠 ${resetCredits}回`);
+  const creditNote = describeCreditBalance(credits);
+
+  if (creditNote !== null) {
+    notes.push(creditNote);
   }
 
   return {
@@ -97,6 +99,61 @@ export function parseCodexUsage(body: unknown, capturedAt: number): ProviderSnap
     limitReached: rateLimit.limit_reached === true || rateLimit.allowed === false || windowDenied,
     windows: withUniqueLabels(windows),
     notes,
+    // 期限は別の応答にしか無い。ここでは回数だけを持ち、詳細は取得側で足す。
+    resetCredits: resetCredits !== null && resetCredits > 0 ? { available: resetCredits, expiries: null } : undefined,
+  };
+}
+
+/**
+ * 詳細 API の応答から、available な枠の期限だけを昇順で読む。
+ * 期限の無い枠は含めない。形が読めない応答は「詳細なし」として null を返す。
+ */
+export function parseCodexResetCredits(body: unknown): number[] | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const credits = (body as Record<string, unknown>).credits;
+
+  if (!Array.isArray(credits)) {
+    return null;
+  }
+
+  const expiries: number[] = [];
+
+  for (const credit of credits) {
+    if (readString(credit, "status") !== "available") {
+      continue;
+    }
+
+    const expiresAt = readIsoTime(credit, "expires_at");
+
+    if (expiresAt !== null) {
+      expiries.push(expiresAt);
+    }
+  }
+
+  return expiries.sort((a, b) => a - b);
+}
+
+/** 詳細の期限を snapshot へ足す。詳細が読めないときは usage の回数をそのまま残す。 */
+export function withResetCreditDetails(snapshot: ProviderSnapshot, body: unknown): ProviderSnapshot {
+  if (!snapshot.resetCredits) {
+    return snapshot;
+  }
+
+  const expiries = parseCodexResetCredits(body);
+
+  if (expiries === null) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    resetCredits: {
+      available: snapshot.resetCredits.available,
+      expiries,
+    },
   };
 }
 
@@ -112,13 +169,14 @@ export async function fetchCodexUsage(options: {
   timeoutMs?: number;
 }): Promise<ProviderSnapshot> {
   const { accessToken, accountId } = await readCredential(options.source);
+  const headers = {
+    authorization: `Bearer ${accessToken}`,
+    "chatgpt-account-id": accountId,
+    accept: "application/json",
+    "user-agent": options.userAgent,
+  };
   const response = await fetchJson(CODEX_USAGE_URL, {
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "chatgpt-account-id": accountId,
-      accept: "application/json",
-      "user-agent": options.userAgent,
-    },
+    headers,
     timeoutMs: options.timeoutMs ?? UPSTREAM_TIMEOUT_MS,
   });
 
@@ -136,7 +194,11 @@ export async function fetchCodexUsage(options: {
   }
 
   try {
-    return parseCodexUsage(response.json, options.now());
+    return await readResetCreditDetails(
+      parseCodexUsage(response.json, options.now()),
+      headers,
+      options.timeoutMs ?? UPSTREAM_TIMEOUT_MS,
+    );
   } catch (error) {
     if (error instanceof ProviderError) {
       throw error;
@@ -144,6 +206,33 @@ export async function fetchCodexUsage(options: {
 
     throw new ProviderError("schema", "Codex の応答を解釈できませんでした");
   }
+}
+
+/**
+ * リセット枠があるときだけ詳細を読む。回数 0 のアカウントへ無駄な要求を出さない。
+ * 失敗は snapshot 全体を落とさず、回数だけの表示へ戻す。
+ */
+async function readResetCreditDetails(
+  snapshot: ProviderSnapshot,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<ProviderSnapshot> {
+  const resetCredits = snapshot.resetCredits;
+
+  if (!resetCredits || resetCredits.available <= 0) {
+    return snapshot;
+  }
+
+  const response = await fetchJson(CODEX_RESET_CREDITS_URL, {
+    headers,
+    timeoutMs: Math.min(timeoutMs, RESET_CREDITS_TIMEOUT_MS),
+  });
+
+  if (!response || response.status !== 200) {
+    return snapshot;
+  }
+
+  return withResetCreditDetails(snapshot, response.json);
 }
 
 async function readCredential(source: CodexCredentialSource): Promise<{ accessToken: string; accountId: string }> {
@@ -167,6 +256,29 @@ function planLabel(raw: string | null): string | null {
   return PLAN_LABELS[raw.toLowerCase()] ?? raw;
 }
 
+/**
+ * クレジット残高の注記。数値を読めるときは値で、読めないときは有無だけを出す。
+ * `balance` は文字列で返るため、数値にならない値は「読めない」として扱う。
+ */
+function describeCreditBalance(credits: Record<string, unknown> | null): string | null {
+  if (!credits) {
+    return null;
+  }
+
+  if (credits.unlimited === true) {
+    return "クレジット無制限";
+  }
+
+  const raw = readString(credits, "balance");
+  const balance = raw === null ? Number.NaN : Number(raw);
+
+  if (Number.isFinite(balance)) {
+    return `クレジット残高 ${Math.round(balance)}`;
+  }
+
+  return credits.has_credits === true ? "クレジット残高あり" : null;
+}
+
 function resetAt(raw: Record<string, unknown>, capturedAt: number): number | null {
   const epochSeconds = readNumber(raw, "reset_at");
 
@@ -177,4 +289,16 @@ function resetAt(raw: Record<string, unknown>, capturedAt: number): number | nul
   const afterSeconds = readNumber(raw, "reset_after_seconds");
 
   return afterSeconds !== null && afterSeconds >= 0 ? capturedAt + afterSeconds * 1000 : null;
+}
+
+function readIsoTime(value: unknown, key: string): number | null {
+  const raw = readString(value, key);
+
+  if (raw === null) {
+    return null;
+  }
+
+  const at = Date.parse(raw);
+
+  return Number.isFinite(at) ? at : null;
 }

@@ -37,6 +37,9 @@ export type ProviderState = "loading" | "ok" | "stale" | "error";
 /** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
 export type UsageSourceAccount = { id: string; name: string; icon: string };
 
+/** Codex のリセット枠。`expiries` が null なら期限は未取得で、回数だけが分かる。 */
+export type ResetCredits = { available: number; expiries: number[] | null };
+
 export type UsageSource = {
   /** `codex` または account の uuid。 */
   id: string;
@@ -54,6 +57,8 @@ export type UsageSource = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
+  /** Codex のリセット枠。他の provider と、古い server の応答では null。 */
+  resetCredits: ResetCredits | null;
   /** 窓ごとの推移。2 点未満の窓は含まれない。 */
   trends: Trend[];
 };
@@ -762,6 +767,7 @@ function parseSource(value: unknown): UsageSource | null {
       .map(parseWindow)
       .filter((window) => window !== null),
     notes: readStrings(value, "notes"),
+    resetCredits: parseResetCredits(readObject(value, "resetCredits")),
     trends: readObjects(value, "trends")
       .map(parseTrend)
       .filter((trend) => trend !== null),
@@ -776,6 +782,19 @@ function parseSourceAccount(value: Record<string, unknown> | null): UsageSourceA
   }
 
   return { id, name: readString(value, "name") ?? "", icon: readString(value, "icon") ?? "" };
+}
+
+function parseResetCredits(value: Record<string, unknown> | null): ResetCredits | null {
+  const available = value ? readNumber(value, "available") : null;
+
+  if (!value || available === null || available <= 0) {
+    return null;
+  }
+
+  return {
+    available,
+    expiries: Array.isArray(value.expiries) ? readNumbers(value, "expiries") : null,
+  };
 }
 
 function parseWindow(value: unknown): UsageWindow | null {

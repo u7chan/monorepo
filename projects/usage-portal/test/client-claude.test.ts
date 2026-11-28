@@ -121,5 +121,6 @@ describe("parseUsage", () => {
     expect(payload?.sources[0]?.provider).toBe("claude");
     expect(payload?.sources[0]?.plan).toBe("Max");
     expect(payload?.sources[0]?.nextFetchAt).toBeNull();
+    expect(payload?.sources[0]?.resetCredits).toBeNull();
   });
 });

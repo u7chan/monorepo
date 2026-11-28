@@ -552,6 +552,28 @@ h2 {
   gap: var(--up-space-1) var(--up-space-2);
 }
 
+/* リセット枠は回数と、枠ごとの期限を縦に並べる。 */
+.up-reset-credits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.up-reset-credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--up-space-5);
+}
+
+.up-reset-credits-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--up-space-1) var(--up-space-2);
+}
+
 .up-notes {
   display: flex;
   flex-direction: column;

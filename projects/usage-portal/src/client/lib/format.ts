@@ -121,6 +121,47 @@ export function describeReset(
 }
 
 /**
+ * カードに出すリセット枠。期限は available な枠の分だけ並べ、
+ * 詳細を取れていないときは回数だけにする（推測の期限を出さない）。
+ */
+export type ResetCreditsView = {
+  label: string;
+  rows: { remaining: string; at: string }[];
+  /** 期限が分からない枠の注記。全部読めていれば null。 */
+  note: string | null;
+};
+
+export function describeResetCredits(
+  credits: { available: number; expiries: number[] | null },
+  now: number,
+): ResetCreditsView | null {
+  if (credits.available <= 0) {
+    return null;
+  }
+
+  const label = `リセット枠 ${credits.available}回`;
+
+  if (credits.expiries === null) {
+    return { label, rows: [], note: null };
+  }
+
+  const rows = [...credits.expiries]
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => a - b)
+    .map((at) => ({
+      remaining: at <= now ? "期限切れ" : `あと ${describeRemaining(at - now)}`,
+      at: `期限 ${formatDateTime(at)}`,
+    }));
+  const unknown = rows.length > 0 ? Math.max(0, credits.available - rows.length) : 0;
+
+  return {
+    label,
+    rows,
+    note: unknown > 0 ? `他 ${unknown}件は期限不明` : rows.length === 0 ? "期限なし" : null,
+  };
+}
+
+/**
  * ローリングは 5 時間以内に終わる。日付は「あと N 時間」から分かるので時計だけを出し、日をまたぐときだけ「翌」を付ける。
  * 期間が読めず 2 日以上先になったときは、いつ戻るかを読み違えないよう日付ごと出す。
  */

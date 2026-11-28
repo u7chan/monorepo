@@ -1,6 +1,13 @@
 // Codex の応答を「返ってきた窓だけ」正規化できることを固定する。
-import { describe, expect, test } from "bun:test";
-import { parseCodexUsage } from "../src/server/providers/codex";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  CODEX_RESET_CREDITS_URL,
+  CODEX_USAGE_URL,
+  fetchCodexUsage,
+  parseCodexResetCredits,
+  parseCodexUsage,
+  withResetCreditDetails,
+} from "../src/server/providers/codex";
 import { ProviderError } from "../src/server/providers/types";
 
 const CAPTURED = 1_800_000_000_000;
@@ -96,26 +103,41 @@ describe("parseCodexUsage", () => {
     expect(parseCodexUsage(usage({ primary_window: { used_percent: 10 } }), CAPTURED).limitReached).toBe(false);
   });
 
-  test("クレジットとリセット枠は値があるときだけ注記する", () => {
+  test("クレジット残高は数値で注記し、リセット枠は回数だけを持ち、期限は取得側で足す", () => {
     const withNotes = parseCodexUsage(
       usage(
         { primary_window: { used_percent: 10 } },
-        { credits: { has_credits: true }, rate_limit_reset_credits: { available_count: 2 } },
+        {
+          credits: { has_credits: true, balance: "25" },
+          rate_limit_reset_credits: { available_count: 2 },
+        },
       ),
       CAPTURED,
     );
 
-    expect(withNotes.notes).toEqual(["クレジット残高あり", "リセット枠 2回"]);
+    expect(withNotes.notes).toEqual(["クレジット残高 25"]);
+    expect(withNotes.resetCredits).toEqual({ available: 2, expiries: null });
 
     const withoutNotes = parseCodexUsage(
       usage(
         { primary_window: { used_percent: 10 } },
-        { credits: { has_credits: false }, rate_limit_reset_credits: { available_count: 0 } },
+        { credits: { has_credits: false, balance: "0" }, rate_limit_reset_credits: { available_count: 0 } },
       ),
       CAPTURED,
     );
 
-    expect(withoutNotes.notes).toEqual([]);
+    expect(withoutNotes.resetCredits).toBeUndefined();
+  });
+
+  test("クレジット残高は 0 と端数も出し、数値を読めなければ有無だけを出す", () => {
+    const notesOf = (credits: Record<string, unknown>) =>
+      parseCodexUsage(usage({ primary_window: { used_percent: 10 } }, { credits }), CAPTURED).notes;
+
+    expect(notesOf({ has_credits: false, balance: "0" })).toEqual(["クレジット残高 0"]);
+    expect(notesOf({ has_credits: true, balance: "12.6" })).toEqual(["クレジット残高 13"]);
+    expect(notesOf({ has_credits: true, balance: null })).toEqual(["クレジット残高あり"]);
+    expect(notesOf({ has_credits: false, balance: null })).toEqual([]);
+    expect(notesOf({ unlimited: true, has_credits: true, balance: "0" })).toEqual(["クレジット無制限"]);
   });
 
   test("上流が 100 を超えたら 100 に丸めて上限超過を注記する", () => {
@@ -197,5 +219,147 @@ describe("parseCodexUsage", () => {
 
     expect(json).not.toContain("sentinel");
     expect(snapshot.capturedAt).toBe(CAPTURED);
+  });
+});
+
+describe("parseCodexResetCredits", () => {
+  test("available な枠の期限だけを昇順で返す", () => {
+    const expiries = parseCodexResetCredits({
+      credits: [
+        { status: "available", expires_at: "2026-12-26T05:05:40.952825Z" },
+        { status: "redeemed", expires_at: "2026-01-01T00:00:00Z" },
+        { status: "available", expires_at: "2026-12-12T22:36:59.170831Z" },
+      ],
+      available_count: 2,
+    });
+
+    expect(expiries).toEqual([Date.parse("2026-12-12T22:36:59.170831Z"), Date.parse("2026-12-26T05:05:40.952825Z")]);
+  });
+
+  test("期限の無い枠と日時を読めない枠は期限に数えない", () => {
+    expect(
+      parseCodexResetCredits({
+        credits: [
+          { status: "available", expires_at: null },
+          { status: "available", expires_at: "not-a-date" },
+          { status: "available" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  test("credits が配列でない応答は「期限不明」として null", () => {
+    expect(parseCodexResetCredits({})).toBeNull();
+    expect(parseCodexResetCredits({ credits: null })).toBeNull();
+    expect(parseCodexResetCredits(null)).toBeNull();
+  });
+});
+
+describe("withResetCreditDetails", () => {
+  const snapshot = parseCodexUsage(
+    usage({ primary_window: { used_percent: 10 } }, { rate_limit_reset_credits: { available_count: 2 } }),
+    CAPTURED,
+  );
+
+  test("available な枠の期限を全部、昇順で足す", () => {
+    const merged = withResetCreditDetails(snapshot, {
+      credits: [
+        { status: "available", expires_at: "2026-12-26T05:05:40Z" },
+        { status: "available", expires_at: "2026-12-12T22:36:59Z" },
+      ],
+    });
+
+    expect(merged.resetCredits).toEqual({
+      available: 2,
+      expiries: [Date.parse("2026-12-12T22:36:59Z"), Date.parse("2026-12-26T05:05:40Z")],
+    });
+  });
+
+  test("期限の無い枠しか無ければ空の期限一覧にする", () => {
+    const merged = withResetCreditDetails(snapshot, { credits: [{ status: "available", expires_at: null }] });
+
+    expect(merged.resetCredits).toEqual({ available: 2, expiries: [] });
+  });
+
+  test("詳細を読めない応答は usage の回数だけを残す", () => {
+    expect(withResetCreditDetails(snapshot, {})).toBe(snapshot);
+    expect(withResetCreditDetails(snapshot, null)).toBe(snapshot);
+  });
+
+  test("リセット枠を持たない snapshot はそのまま返す", () => {
+    const plain = parseCodexUsage(usage({ primary_window: { used_percent: 10 } }), CAPTURED);
+
+    expect(withResetCreditDetails(plain, { credits: [] })).toBe(plain);
+  });
+});
+
+describe("fetchCodexUsage", () => {
+  const realFetch = globalThis.fetch;
+  const source = {
+    credential: async () => ({ accessToken: "token-sentinel", accountId: "account-sentinel" }),
+  };
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  }
+
+  function usageResponse(available: number): Response {
+    return jsonResponse(
+      usage({ primary_window: { used_percent: 10 } }, { rate_limit_reset_credits: { available_count: available } }),
+    );
+  }
+
+  test("リセット枠があるときだけ詳細を読み、期限を全部入れる", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+
+      return url === CODEX_RESET_CREDITS_URL
+        ? jsonResponse({
+            credits: [
+              { status: "available", expires_at: "2026-12-26T05:05:40.952825Z" },
+              { status: "available", expires_at: "2026-12-12T22:36:59.170831Z" },
+            ],
+          })
+        : usageResponse(2);
+    }) as unknown as typeof fetch;
+
+    const snapshot = await fetchCodexUsage({ source, userAgent: "usage-portal/test", now: () => CAPTURED });
+
+    expect(urls).toEqual([CODEX_USAGE_URL, CODEX_RESET_CREDITS_URL]);
+    expect(snapshot.resetCredits).toEqual({
+      available: 2,
+      expiries: [Date.parse("2026-12-12T22:36:59.170831Z"), Date.parse("2026-12-26T05:05:40.952825Z")],
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("sentinel");
+  });
+
+  test("リセット枠が 0 なら詳細を問い合わせない", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+
+      return usageResponse(0);
+    }) as unknown as typeof fetch;
+
+    const snapshot = await fetchCodexUsage({ source, userAgent: "usage-portal/test", now: () => CAPTURED });
+
+    expect(urls).toEqual([CODEX_USAGE_URL]);
+    expect(snapshot.resetCredits).toBeUndefined();
+  });
+
+  test("詳細が失敗しても usage の回数だけで snapshot を返す", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) =>
+      String(input) === CODEX_RESET_CREDITS_URL ? jsonResponse({}, 500) : usageResponse(2)) as unknown as typeof fetch;
+
+    const snapshot = await fetchCodexUsage({ source, userAgent: "usage-portal/test", now: () => CAPTURED });
+
+    expect(snapshot.windows).toHaveLength(1);
+    expect(snapshot.resetCredits).toEqual({ available: 2, expiries: null });
   });
 });

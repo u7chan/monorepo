@@ -48,7 +48,15 @@ Codex の利用枠を読むには ChatGPT の OAuth access token と `chatgpt-ac
 - `primary_window` / `secondary_window` は `null` を許容する。返ってきた窓だけを表示する。
 - `reset_at`（epoch 秒）を優先し、無ければ取得時刻 + `reset_after_seconds` を使う。
 - `rate_limit.limit_reached` が true、または `allowed` が false なら上限到達として扱う。
-- `email`、`user_id`、上流の生 JSON は保存しない。
+- リセット枠の回数は `rate_limit_reset_credits.available_count` から読む。期限は usage に含まれないため、
+  `available_count > 0` のときだけ `GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` を追加で読み、
+  `credits[]`（`status` が `available`）の `expires_at`（RFC3339、`null` は期限なし）を全部、昇順で使う。
+- 期限の取得は CLI と同じ best-effort とする。5 秒で諦め、失敗・形の変化は snapshot 全体を落とさず、
+  回数だけの表示に戻す。期限を推測して出さない（取得できていないことを「期限なし」と書かない）。
+- 詳細 API の一覧は `available_count` より短いことがある。見えている枠の期限を全部出し、残りは期限不明として扱う。
+- クレジット残高は `credits.balance`（文字列）を数値に丸めて注記する。`unlimited` は「無制限」、
+  数値を読めないときは `has_credits` の有無だけを注記する。
+- `email`、`user_id`、上流の生 JSON は保存しない。リセット枠は回数と期限の一覧だけを snapshot に残す。
 - device code / OAuth の callback はコンテナ内に閉じるため、スマホからはデバイスコードで承認する。
 
 ### 最小プロンプトの送信
