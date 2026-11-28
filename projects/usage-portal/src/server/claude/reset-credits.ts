@@ -12,13 +12,30 @@ const EXPIRY_SKEW_MS = 60_000;
 
 export type ClaudeResetCreditsValue = { available: number; expiries: number[] };
 
+/** 上流が「このクライアントには返さない」「今は判定できない」と答えた理由。生値は応答ごとに読み替える。 */
+export type ClaudeResetCreditsRejection = "surface" | "cli_version" | "mobile" | "unavailable" | "unknown";
+
 /** 取得経路の分類。文言は service が固定値へ写す。 */
 export type ClaudeResetCreditsRead =
   | { kind: "ok"; credits: ClaudeResetCreditsValue }
+  | { kind: "rejected"; rejection: ClaudeResetCreditsRejection }
   | { kind: "needs_credential" }
   | { kind: "unauthorized" }
   | { kind: "upstream" }
   | { kind: "schema" };
+
+/**
+ * `eligible: false` でも grant が無いだけと分かる理由。これ以外は判定できないので取得失敗にする。
+ * 上流の値は増え得るため、知らない理由は 0 件ではなく失敗へ倒す。
+ */
+const CLAUDE_RESET_CREDITS_NOT_OFFERED = new Set([
+  "config_off",
+  "tier",
+  "seat",
+  "no_grant",
+  "tenure",
+  "other_experiment",
+]);
 
 /**
  * CLI が保存した access token を読む。Portal は書き換えない（refresh は CLI に任せる）。
@@ -60,8 +77,9 @@ export function readClaudeAccessToken(credentialDir: string, now: number): strin
 
 /**
  * 詳細 API の応答から、残っている grant だけを読む。
- * 0 件は `eligible: false` か、`grants` が空・未設定のときだけ。`cedar_ember` や grant の形が
- * 読めない応答（`ends_at` の欠落を含む）は null（取得失敗）にして、前回の値を 0 件で上書きしない。
+ * 0 件は `eligible: false` の理由が `CLAUDE_RESET_CREDITS_NOT_OFFERED` のときと、`grants` が空・未設定のときだけ。
+ * `cedar_ember` や grant の形が読めない応答（`ends_at` の欠落を含む）と、判定できない理由は null（取得失敗）に
+ * して、前回の値を 0 件で上書きしない。
  */
 export function parseClaudeResetCredits(body: unknown, now: number): ClaudeResetCreditsValue | null {
   if (typeof body !== "object" || body === null) {
@@ -82,7 +100,12 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
   }
 
   if (!status.eligible) {
-    return { available: 0, expiries: [] };
+    const reason = status.ineligible_reason;
+
+    // 0 件として保存すると、前回の値が消えるうえに原因も見えなくなる。
+    return typeof reason === "string" && CLAUDE_RESET_CREDITS_NOT_OFFERED.has(reason)
+      ? { available: 0, expiries: [] }
+      : null;
   }
 
   const grants = status.grants;
@@ -144,6 +167,49 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
   return { available, expiries: expiries.sort((a, b) => a - b) };
 }
 
+/** 上流の surface 判定を CLI と同じにするため、CLI の UA に Portal の UA を併記する。 */
+export function claudeResetCreditsUserAgent(cliVersion: string, portalUserAgent: string): string {
+  return `claude-cli/${cliVersion} (external, cli) ${portalUserAgent}`;
+}
+
+/**
+ * `eligible: false` の理由が「grant が無い」ではなく拒否・判定不能なら、固定の語彙へ写す。
+ * 未知の理由も `unknown` として拒否に倒し、grant の 0 件と取り違えない。
+ */
+export function claudeResetCreditsRejection(body: unknown): ClaudeResetCreditsRejection | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const cedar = (body as Record<string, unknown>).cedar_ember;
+
+  if (typeof cedar !== "object" || cedar === null) {
+    return null;
+  }
+
+  const status = cedar as Record<string, unknown>;
+
+  if (status.eligible !== false) {
+    return null;
+  }
+
+  const reason = status.ineligible_reason;
+
+  if (typeof reason === "string" && CLAUDE_RESET_CREDITS_NOT_OFFERED.has(reason)) {
+    return null;
+  }
+
+  switch (reason) {
+    case "surface":
+    case "cli_version":
+    case "mobile":
+    case "unavailable":
+      return reason;
+    default:
+      return "unknown";
+  }
+}
+
 export async function requestClaudeResetCredits(options: {
   credentialDir: string;
   userAgent: string;
@@ -176,6 +242,12 @@ export async function requestClaudeResetCredits(options: {
 
   if (response.status !== 200) {
     return { kind: "upstream" };
+  }
+
+  const rejection = claudeResetCreditsRejection(response.json);
+
+  if (rejection !== null) {
+    return { kind: "rejected", rejection };
   }
 
   const credits = parseClaudeResetCredits(response.json, options.now());
