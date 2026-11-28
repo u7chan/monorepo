@@ -8,7 +8,15 @@ import { createAuthService } from "../src/server/auth";
 import { openDatabase, type DatabaseHandle } from "../src/server/db";
 import { createFetchIntervalStore } from "../src/server/fetch-intervals";
 import { buildHealthReport } from "../src/server/health";
-import { EMPTY_USAGE, stubClaudeApi, stubClaudeStart, stubCodexApi, stubOpenCodeApi, stubProbeApi } from "./support";
+import {
+  EMPTY_USAGE,
+  stubClaudeApi,
+  stubClaudeStart,
+  stubCodexApi,
+  stubGeminiApi,
+  stubOpenCodeApi,
+  stubProbeApi,
+} from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -38,6 +46,7 @@ async function harness(): Promise<Harness> {
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
     claudeStart: stubClaudeStart(),
+    gemini: stubGeminiApi(),
     probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
     fetchIntervals: {

@@ -14,7 +14,7 @@ const LEGACY_CODEX_SOURCE_ID = "codex";
 
 /**
  * 3 つのテーブルの `provider` 列は provider id ではなく source id を持つ。
- * `codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` が入り、
+ * `codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude` / `gemini` が入り、
  * 列名だけが v1 のまま残っている。
  */
 const MIGRATIONS: readonly string[] = [

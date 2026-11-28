@@ -31,7 +31,7 @@ export type Trend = {
   resets: number[];
 };
 
-export type ProviderId = "codex" | "opencode-go" | "claude";
+export type ProviderId = "codex" | "opencode-go" | "claude" | "gemini";
 export type ProviderState = "loading" | "ok" | "stale" | "error";
 
 /** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
@@ -150,6 +150,13 @@ export type ClaudeRefreshOutcome =
   | { state: "refreshed" }
   | { state: "skipped"; reason: "fresh" | "cooldown" | "logout" }
   | { state: "failed"; error: string };
+
+/** Gemini の取得は Claude と同じ契機・同じ応答の形。 */
+export type GeminiRefreshMode = ClaudeRefreshMode;
+export type GeminiRefreshOutcome = ClaudeRefreshOutcome;
+
+/** `incomplete` は token を消しても CLI が接続済みと答えた状態。`failed` は消せなかった・確かめられなかった状態。 */
+export type GeminiLogoutOutcome = "done" | "incomplete" | "failed";
 
 export type OpenCodeAccountOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -467,6 +474,27 @@ export async function refreshClaudeUsage(mode: ClaudeRefreshMode): Promise<Claud
   return parseClaudeRefresh(await response.json().catch(() => null));
 }
 
+/**
+ * Gemini の利用枠を取り直す。契機の制限は Claude と同じで、`auto` は前回から 15 分以内なら server が起動しない。
+ */
+export async function refreshGeminiUsage(mode: GeminiRefreshMode): Promise<GeminiRefreshOutcome | Unauthorized | null> {
+  const response = await fetch("/api/gemini/refresh", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseClaudeRefresh(await response.json().catch(() => null));
+}
+
 /** 手動のリセット枠取得。通常の `/api/claude/refresh` とは別に呼ぶ。 */
 export async function refreshClaudeResetCredits(): Promise<ClaudeResetCreditsOutcome | Unauthorized | null> {
   const response = await fetch("/api/claude/reset-credits", {
@@ -665,6 +693,20 @@ export async function logoutClaude(): Promise<boolean> {
   return response.ok;
 }
 
+/**
+ * Gemini の token の削除と確認を BFF に頼む。進行中の取得を待つため、応答は最大 45 秒かかる。
+ * 204 は完了、409 は削除後も接続が残った状態、それ以外（401 を含む）は失敗として扱う。
+ */
+export async function logoutGemini(): Promise<GeminiLogoutOutcome> {
+  const response = await fetch("/api/gemini/logout", { method: "POST" });
+
+  if (response.ok) {
+    return "done";
+  }
+
+  return response.status === 409 ? "incomplete" : "failed";
+}
+
 export async function deleteOpenCodeAccount(id: string): Promise<boolean> {
   const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
 
@@ -781,7 +823,7 @@ function parseSource(value: unknown): UsageSource | null {
   const id = readString(value, "id");
   const provider = readString(value, "provider");
 
-  if (!id || (provider !== "codex" && provider !== "opencode-go" && provider !== "claude")) {
+  if (!id || (provider !== "codex" && provider !== "opencode-go" && provider !== "claude" && provider !== "gemini")) {
     return null;
   }
 

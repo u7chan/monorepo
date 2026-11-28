@@ -5,10 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CLAUDE_PROMPT_TIMEOUT_MS,
+  CLAUDE_VERSION_ARGS,
   ClaudeCliError,
   claudeConfigDir,
   createClaudeCli,
   createClaudePromptCli,
+  parseClaudeVersion,
+  readClaudeVersion,
+  type ClaudeCli,
   type SpawnClaudeOptions,
 } from "../src/server/claude/cli";
 
@@ -123,6 +127,28 @@ describe("createClaudeCli", () => {
 
     await expect(cli.run(["5"])).rejects.toMatchObject({ reason: "timeout" });
     expect(Date.now() - startedAt).toBeLessThan(3_000);
+  });
+});
+
+describe("readClaudeVersion", () => {
+  test("--version の出力から版だけを読み、読めなければ null にする", async () => {
+    const cli: ClaudeCli = { run: async (args) => (args === CLAUDE_VERSION_ARGS ? "2.1.332 (Claude Code)\n" : "") };
+
+    await expect(readClaudeVersion(cli)).resolves.toBe("2.1.332");
+    expect(parseClaudeVersion("2.1.332 (Claude Code)\n")).toBe("2.1.332");
+    expect(parseClaudeVersion("2.2.0-beta.1 (Claude Code)")).toBe("2.2.0-beta.1");
+    expect(parseClaudeVersion("Claude Code")).toBeNull();
+    expect(parseClaudeVersion("")).toBeNull();
+  });
+
+  test("CLI を起こせない・失敗しても null に丸める", async () => {
+    const failing: ClaudeCli = {
+      run: async () => {
+        throw new ClaudeCliError("spawn", "Claude の CLI を起動できませんでした");
+      },
+    };
+
+    await expect(readClaudeVersion(failing)).resolves.toBeNull();
   });
 });
 

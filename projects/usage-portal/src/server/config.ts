@@ -23,6 +23,12 @@ const DEFAULT_POLL_INTERVAL_MS = 10 * 60 * 1000;
 /** 上流のレート制限を自分で踏まないための下限。env でだけ下げられる。 */
 const MIN_POLL_INTERVAL_MS = 60 * 1000;
 
+/**
+ * `Bun.serve` の既定（10 秒）のままにしない。Gemini のログアウトは進行中の取得（最大 30 秒）と確認（15 秒）を
+ * 待つため最大 45 秒かかり、既定では応答の前に接続が切れて、画面は結果を受け取れない。env にはしない。
+ */
+export const SERVER_IDLE_TIMEOUT_SECONDS = 60;
+
 export function loadConfig(env: Record<string, string | undefined>, packageVersion: string): ServerConfig {
   return {
     host: env.HOST?.trim() || DEFAULT_HOST,

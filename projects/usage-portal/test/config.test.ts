@@ -1,6 +1,9 @@
 // 環境変数から待ち受けと保存先を決める既定値を固定する。
 import { describe, expect, test } from "bun:test";
-import { loadConfig } from "../src/server/config";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { GEMINI_CLI_TIMEOUT_MS } from "../src/server/gemini/cli";
+import { SERVER_IDLE_TIMEOUT_SECONDS, loadConfig } from "../src/server/config";
 
 describe("loadConfig", () => {
   test("未設定なら既定の待ち受け・保存先・取得間隔になる", () => {
@@ -54,5 +57,19 @@ describe("loadConfig", () => {
     for (const interval of ["0", "1000", "59999", "1.5", "abc"]) {
       expect(() => loadConfig({ POLL_INTERVAL_MS: interval }, "0.1.0")).toThrow();
     }
+  });
+});
+
+describe("SERVER_IDLE_TIMEOUT_SECONDS", () => {
+  test("Gemini のログアウトの最大（進行中の取得 2 回 + 確認 1 回の CLI の期限）より長く、Bun の上限 255 秒以下", () => {
+    expect(SERVER_IDLE_TIMEOUT_SECONDS * 1000).toBeGreaterThan(3 * GEMINI_CLI_TIMEOUT_MS);
+    expect(SERVER_IDLE_TIMEOUT_SECONDS).toBeLessThanOrEqual(255);
+  });
+
+  test("Bun.serve へ渡している", () => {
+    // server.ts は副作用を持つ入口で import できない。既定の 10 秒に戻る変更だけを見張る。
+    const source = readFileSync(resolve(import.meta.dir, "../src/server.ts"), "utf8");
+
+    expect(source).toMatch(/idleTimeout: SERVER_IDLE_TIMEOUT_SECONDS,/);
   });
 });

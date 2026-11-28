@@ -14,6 +14,7 @@ import {
 } from "../src/server/db";
 import { codexSourceId } from "../src/server/codex/source";
 import { buildHealthReport } from "../src/server/health";
+import { parseGeminiUsage } from "../src/server/providers/gemini";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
@@ -22,6 +23,8 @@ import {
   stubClaudeApi,
   stubClaudeStart,
   stubCodexApi,
+  stubGeminiApi,
+  type StubGeminiApi,
   stubOpenCodeApi,
   usageSnapshot,
   stubProbeApi,
@@ -49,7 +52,7 @@ type Harness = {
 
 function harness(
   accounts: readonly UsageSourceAccount[] = [],
-  options: { codexSourceId?: () => string } = {},
+  options: { codexSourceId?: () => string; gemini?: StubGeminiApi } = {},
 ): Harness {
   let clock = BASE_TIME;
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-usage-api-"));
@@ -72,6 +75,7 @@ function harness(
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
     claudeStart: stubClaudeStart(),
+    gemini: options.gemini ?? stubGeminiApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
@@ -127,13 +131,14 @@ describe("GET /api/usage", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 
-  test("アカウント 0 件でも Codex と Claude を返し、未取得は loading", async () => {
+  test("アカウント 0 件でも Codex・Claude・Gemini を返し、未取得は loading", async () => {
     const h = harness();
     const payload = await readUsage(h, await sessionCookie(h.app));
 
     expect(payload.sources.map((source) => [source.id, source.provider, source.name, source.state])).toEqual([
       ["codex", "codex", "Codex", "loading"],
       ["claude", "claude", "Claude", "loading"],
+      ["gemini", "gemini", "Gemini", "loading"],
     ]);
     expect(payload.sources[0]?.account).toBeNull();
     expect(payload.sources[0]?.fetchIntervalMs).toBe(INTERVAL);
@@ -141,22 +146,25 @@ describe("GET /api/usage", () => {
     // Claude は周期取得をしないので、次回予定を持たない（カードのバーも出ない）。
     expect(payload.sources[1]?.nextFetchAt).toBeNull();
     expect(payload.sources[1]?.fetchIntervalMs).toBe(900_000);
+    expect(payload.sources[2]?.nextFetchAt).toBeNull();
+    expect(payload.sources[2]?.fetchIntervalMs).toBe(900_000);
     expect(payload.generatedAt).toBe(BASE_TIME);
   });
 
-  test("Codex → Claude → 登録順のアカウントで並べ、アカウントの名前とアイコンを返す", async () => {
+  test("Codex → Claude → Gemini → 登録順のアカウントで並べ、アカウントの名前とアイコンを返す", async () => {
     const h = harness(ACCOUNTS);
     const payload = await readUsage(h, await sessionCookie(h.app));
 
     expect(payload.sources.map((source) => [source.id, source.provider, source.name])).toEqual([
       ["codex", "codex", "Codex"],
       ["claude", "claude", "Claude"],
+      ["gemini", "gemini", "Gemini"],
       [MAIN_ID, "opencode-go", "メイン"],
       [SUB_ID, "opencode-go", "サブ"],
     ]);
-    expect(payload.sources[2]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
-    expect(payload.sources[2]?.plan).toBeNull();
-    expect(payload.sources[2]?.state).toBe("loading");
+    expect(payload.sources[3]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
+    expect(payload.sources[3]?.plan).toBeNull();
+    expect(payload.sources[3]?.state).toBe("loading");
   });
 
   test("snapshot を state ok として返し、窓の期間ぶんの推移を付ける", async () => {
@@ -330,8 +338,8 @@ describe("GET /api/usage", () => {
     });
 
     const payload = await readUsage(h, cookie);
-    const main = payload.sources[2];
-    const sub = payload.sources[3];
+    const main = payload.sources[3];
+    const sub = payload.sources[4];
 
     expect(main?.name).toBe("メイン");
     expect(main?.state).toBe("ok");
@@ -360,7 +368,7 @@ describe("GET /api/usage", () => {
 
     const payload = await readUsage(h, cookie);
 
-    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "loading", "error", "loading"]);
+    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "loading", "loading", "error", "loading"]);
   });
 
   test("snapshot と error が両方あれば前回の値を stale として返す", async () => {
@@ -464,8 +472,85 @@ describe("provider ごとの取得間隔", () => {
 
     const claude = payload.sources.find((source) => source.provider === "claude");
 
-    // 設定できる間隔は Codex / OpenCode Go だけで、Claude は 15 分固定。
+    const gemini = payload.sources.find((source) => source.provider === "gemini");
+
+    // 設定できる間隔は Codex / OpenCode Go だけで、Claude と Gemini は 15 分固定。
     expect(claude?.fetchIntervalMs).toBe(900_000);
     expect(claude?.nextFetchAt).toBeNull();
+    expect(gemini?.fetchIntervalMs).toBe(900_000);
+    expect(gemini?.nextFetchAt).toBeNull();
+  });
+});
+
+describe("Gemini の行", () => {
+  const GEMINI_BODY = {
+    command: {
+      data: {
+        groups: [
+          {
+            name: "Gemini Models",
+            buckets: [
+              {
+                id: "gemini-5h",
+                window: "5h",
+                remaining_fraction: 0.75,
+                reset_time: new Date(BASE_TIME + 3 * 60 * MINUTE).toISOString(),
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+
+  test("保存済みの snapshot を plan なしで返し、窓の推移を付ける", async () => {
+    const h = harness();
+
+    saveProviderSnapshot(h.db, "gemini", parseGeminiUsage(GEMINI_BODY, BASE_TIME - 30 * MINUTE));
+    saveProviderSnapshot(h.db, "gemini", parseGeminiUsage(GEMINI_BODY, BASE_TIME));
+
+    const gemini = (await readUsage(h, await sessionCookie(h.app))).sources.find(
+      (source) => source.provider === "gemini",
+    );
+
+    expect(gemini?.id).toBe("gemini");
+    expect(gemini?.state).toBe("ok");
+    expect(gemini?.plan).toBeNull();
+    expect(gemini?.windows.map((window) => [window.id, window.usedPercent])).toEqual([["rolling", 25]]);
+    expect(gemini?.trends[0]?.windowId).toBe("rolling");
+    expect(gemini?.trends[0]?.points).toHaveLength(2);
+  });
+
+  test("取得から 15 分を超えたら stale、以内なら ok", async () => {
+    const h = harness();
+    const cookie = await sessionCookie(h.app);
+
+    saveProviderSnapshot(h.db, "gemini", parseGeminiUsage(GEMINI_BODY, BASE_TIME));
+
+    // 周期取得の 2 間隔（ここでは 10 分）ではなく、15 分を閾値にする。
+    h.advance(15 * MINUTE);
+
+    expect((await readUsage(h, cookie)).sources[2]?.state).toBe("ok");
+
+    h.advance(1);
+
+    expect((await readUsage(h, cookie)).sources[2]?.state).toBe("stale");
+  });
+
+  test("GET /api/usage は上流へ取りに行かない", async () => {
+    const calls: string[] = [];
+    const h = harness([], {
+      gemini: stubGeminiApi({
+        refresh: async (mode) => {
+          calls.push(mode);
+
+          return { state: "refreshed" };
+        },
+      }),
+    });
+
+    await readUsage(h, await sessionCookie(h.app));
+
+    expect(calls).toEqual([]);
   });
 });

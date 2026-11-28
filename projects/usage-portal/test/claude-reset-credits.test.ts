@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CLAUDE_RESET_CREDITS_URL,
+  claudeResetCreditsRejection,
+  claudeResetCreditsUserAgent,
   parseClaudeResetCredits,
   readClaudeAccessToken,
   requestClaudeResetCredits,
@@ -91,11 +93,14 @@ describe("parseClaudeResetCredits", () => {
     expect(parseClaudeResetCredits(cedar(["not-an-object"]), NOW)).toBeNull();
   });
 
-  test("0 件は eligible: false と grants の欠落だけ、null や形の欠損は取得失敗にする", () => {
-    expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, grants: [] } }, NOW)).toEqual({
-      available: 0,
-      expiries: [],
-    });
+  test("0 件は grant が無いと分かる理由と grants の欠落だけにする", () => {
+    for (const reason of ["config_off", "tier", "seat", "no_grant", "tenure", "other_experiment"]) {
+      expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, ineligible_reason: reason } }, NOW)).toEqual({
+        available: 0,
+        expiries: [],
+      });
+    }
+
     expect(parseClaudeResetCredits({ cedar_ember: { eligible: true, grants: undefined } }, NOW)).toEqual({
       available: 0,
       expiries: [],
@@ -105,6 +110,56 @@ describe("parseClaudeResetCredits", () => {
     expect(parseClaudeResetCredits({ cedar_ember: { grants: [] } }, NOW)).toBeNull();
     expect(parseClaudeResetCredits({ cedar_ember: { eligible: true, grants: {} } }, NOW)).toBeNull();
     expect(parseClaudeResetCredits(null, NOW)).toBeNull();
+  });
+
+  test("grant が無いと言い切れない理由は、0 件ではなく取得失敗にする", () => {
+    for (const reason of ["surface", "cli_version", "mobile", "unavailable", "unknown", "client"]) {
+      expect(
+        parseClaudeResetCredits({ cedar_ember: { eligible: false, ineligible_reason: reason, grants: [] } }, NOW),
+      ).toBeNull();
+    }
+
+    // 理由の欠落も形の変化として扱う。
+    expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, grants: [] } }, NOW)).toBeNull();
+  });
+});
+
+describe("claudeResetCreditsRejection", () => {
+  test("拒否・判定不能の理由だけを固定の語彙で返す", () => {
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: "surface" } })).toBe(
+      "surface",
+    );
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: "cli_version" } })).toBe(
+      "cli_version",
+    );
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: "mobile" } })).toBe(
+      "mobile",
+    );
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: "unavailable" } })).toBe(
+      "unavailable",
+    );
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: "client" } })).toBe(
+      "unknown",
+    );
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false } })).toBe("unknown");
+  });
+
+  test("grant が無いだけの理由と、eligible: true は拒否にしない", () => {
+    for (const reason of ["config_off", "tier", "seat", "no_grant", "tenure", "other_experiment"]) {
+      expect(claudeResetCreditsRejection({ cedar_ember: { eligible: false, ineligible_reason: reason } })).toBeNull();
+    }
+
+    expect(claudeResetCreditsRejection({ cedar_ember: { eligible: true, grants: [] } })).toBeNull();
+    expect(claudeResetCreditsRejection({})).toBeNull();
+    expect(claudeResetCreditsRejection(null)).toBeNull();
+  });
+});
+
+describe("claudeResetCreditsUserAgent", () => {
+  test("CLI と同じ形にして Portal の UA を併記する", () => {
+    expect(claudeResetCreditsUserAgent("2.1.332", "usage-portal/0.1.0")).toBe(
+      "claude-cli/2.1.332 (external, cli) usage-portal/0.1.0",
+    );
   });
 });
 
@@ -177,5 +232,22 @@ describe("requestClaudeResetCredits", () => {
     expect(await readWith(403, "{}")).toBe("unauthorized");
     expect(await readWith(500, "{}")).toBe("upstream");
     expect(await readWith(200, "{}")).toBe("schema");
+  });
+
+  test("拒否の理由は rejected として返し、そのまま成功にしない", async () => {
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ cedar_ember: { eligible: false, ineligible_reason: "surface" } }), {
+          status: 200,
+        }),
+    );
+
+    const result = await requestClaudeResetCredits({
+      credentialDir: credentialDir("token-sentinel"),
+      userAgent: "usage-portal/test",
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ kind: "rejected", rejection: "surface" });
   });
 });

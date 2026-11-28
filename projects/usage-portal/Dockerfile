@@ -87,6 +87,47 @@ RUN set -eu; \
     rm -rf /tmp/claude-check
 
 # -----------------------------------------------
+# agy cli stage
+#   Antigravity CLI（agy）をビルド時に落として SHA-512 を突き合わせ、final にはバイナリだけを渡す。
+#   版は AGY_CLI_VERSION 1 つで、arch ごとの URL と SHA-512 は公式 installer が使う manifest
+#   （https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json と
+#   linux_arm64.json）の url / sha512 を写す。自分で計算した値を正にしない。
+#   manifest は最新版だけを指すため、版を上げるときは両 arch の url / sha512 / AGY_CLI_VERSION を同時に直し、
+#   adapter の fixture（test/providers-gemini.test.ts）を実際の `agy -p "/usage" --output-format json` と突き合わせ直す。
+#   URL の版が AGY_CLI_VERSION と食い違っていたら、ここで止める。
+# -----------------------------------------------
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS agy-cli
+
+ARG AGY_CLI_VERSION="1.5.19"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64|amd64) \
+            url="https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.19-4821414830800896/linux-x64/cli_linux_x64.tar.gz"; \
+            sha512="8160da6ceef2b7b62bb4a630b54b3fb4ee5283377509230736880c4ba4815e848a25cf346954a98134b647eb2f5d34e0364e77fbf74367ffd7dc29c525ddd82d" ;; \
+        aarch64|arm64) \
+            url="https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.19-4821414830800896/linux-arm/cli_linux_arm64.tar.gz"; \
+            sha512="eeecedfc2a63af281e245d73bb69f949a17c6d3ebcd3d023220056ddcc05e204a00d1d0ea77f68741b2fc15a1f66f740bc0e3bf800d734721c60938e61653010" ;; \
+        *) echo "未対応のアーキテクチャです: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    case "$url" in \
+        */antigravity-cli/"${AGY_CLI_VERSION}"-*) ;; \
+        *) echo "URL の版が AGY_CLI_VERSION (${AGY_CLI_VERSION}) と一致しません: $url" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "$url" -o /tmp/agy.tar.gz; \
+    echo "$sha512  /tmp/agy.tar.gz" | sha512sum -c -; \
+    mkdir -p /tmp/agy /opt/agy; \
+    tar -xzf /tmp/agy.tar.gz -C /tmp/agy antigravity; \
+    install -m 0755 /tmp/agy/antigravity /opt/agy/agy; \
+    rm -rf /tmp/agy /tmp/agy.tar.gz; \
+    HOME=/tmp/agy-check AGY_CLI_DISABLE_AUTO_UPDATE=1 /opt/agy/agy --version | grep -Fx "${AGY_CLI_VERSION}"; \
+    rm -rf /tmp/agy-check
+
+# -----------------------------------------------
 # final stage
 # -----------------------------------------------
 FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS final
@@ -105,6 +146,7 @@ ENV COMMIT_HASH=${COMMIT_HASH} \
     DATA_DIR=/app/data \
     CREDENTIAL_DIR=/app/credentials \
     CLAUDE_CONFIG_DIR=/app/credentials/claude \
+    AGY_CLI_DISABLE_AUTO_UPDATE=1 \
     PI_CODING_AGENT_DIR=/app/credentials
 
 WORKDIR /app
@@ -119,11 +161,16 @@ COPY --chown=bun:bun src ./src
 # 書き換えられないようにする。これが自動更新を止める仕組みで、版は上の ARG で固定する。
 COPY --from=claude-cli --chown=root:root /opt/claude/claude /usr/local/bin/claude
 
+# agy も同じく未改変のバイナリを root 所有の 0755 で入れる。AGY_CLI_DISABLE_AUTO_UPDATE は
+# アプリが起動する子プロセスには明示的に渡すが、docker exec で起動する agy にも効くよう image にも置く。
+COPY --from=agy-cli --chown=root:root /opt/agy/agy /usr/local/bin/agy
+
 # DATA_DIR と CREDENTIAL_DIR は volume の mount point。イメージ側でも 0700 にしておく。
 # CLAUDE_CONFIG_DIR は CLI が資格情報を書く場所で、docker exec でサインインする先でもある。
-RUN mkdir -p /app/data /app/credentials /app/credentials/claude \
-    && chown bun:bun /app/data /app/credentials /app/credentials/claude \
-    && chmod 0700 /app/data /app/credentials /app/credentials/claude
+# antigravity は agy の HOME。docker exec では -e HOME=/app/credentials/antigravity を付けてサインインする。
+RUN mkdir -p /app/data /app/credentials /app/credentials/claude /app/credentials/antigravity \
+    && chown bun:bun /app/data /app/credentials /app/credentials/claude /app/credentials/antigravity \
+    && chmod 0700 /app/data /app/credentials /app/credentials/claude /app/credentials/antigravity
 
 USER bun
 
