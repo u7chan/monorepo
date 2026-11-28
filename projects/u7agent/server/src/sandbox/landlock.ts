@@ -6,9 +6,13 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fixedLandlockWriteRoots, type LandlockWriteRoot } from "../agent-write-roots";
 import type { SandboxLandlockStatus } from "./protocol";
 import { resolveTrustedExecutable, runtimeProbeEnv, RUNTIME_PROBE_PATH_DIRS } from "./runtime-info";
 import { BROWSER_PORT_RANGE_END, BROWSER_PORT_RANGE_START } from "../browser/limits";
+
+// 書き込み先の一覧は、dev も node で読めるよう別のモジュールに置く。ここは従来の import 先として残す
+export { fixedLandlockWriteRoots, type LandlockWriteRoot };
 
 /** ラッパーのファイル名。イメージは `/usr/local/bin`、dev は `$HOME/.local/libexec/u7agent` に置く */
 export const LANDLOCK_WRAPPER_NAME = "u7agent-landlock";
@@ -46,12 +50,6 @@ export function landlockAllowedPorts(networkAccess: boolean): string {
 /** ラッパーの `--abi` 診断の期限 */
 export const LANDLOCK_PROBE_TIMEOUT_MS = 2000;
 
-/** 無ければ作ってよい root。エージェントの bash と BFF 内部実行が共有する基準集合の 1 件 */
-export interface LandlockWriteRoot {
-  path: string;
-  create?: boolean;
-}
-
 /**
  * ラッパーの探索先。PATH は使わず固定パスだけを見る (許可 root の外に置き、実体を realpath で確認する)。
  * dev は `pnpm dev` がラッパーを配置する。
@@ -63,21 +61,6 @@ export function landlockWrapperDirs(home = homedir()): string[] {
 /** 信頼ディレクトリで解決したラッパーの実パス。無ければ undefined (bash は実行しない)。 */
 export function resolveLandlockWrapper(dirs = landlockWrapperDirs()): string | undefined {
   return resolveTrustedExecutable(LANDLOCK_WRAPPER_NAME, dirs);
-}
-
-/**
- * `/tmp` とホーム配下のキャッシュ、デバイスファイル。ワークスペースに依らず全実行で許可する。
- * `2>/dev/null` と `mktemp` / パッケージマネージャーのキャッシュを塞がないためで、`$HOME` 全体は許可しない。
- */
-export function fixedLandlockWriteRoots(home = homedir()): LandlockWriteRoot[] {
-  return [
-    { path: "/tmp" },
-    { path: join(home, ".cache"), create: true },
-    { path: join(home, ".npm"), create: true },
-    { path: join(home, ".local", "share", "pnpm"), create: true },
-    { path: "/dev/null" },
-    { path: "/dev/shm" },
-  ];
 }
 
 /**

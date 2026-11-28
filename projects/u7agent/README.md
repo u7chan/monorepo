@@ -22,7 +22,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します。ローカルで Docker は不要です。停止は Ctrl-C で、3 プロセスまとめて止まります。
 
-`bash` を実行するには、Linux と Landlock ABI 4 以上（カーネル 6.7 以上）が必要です。`bash` は書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホーム配下のキャッシュへ限るため、要件を満たさない環境（macOS、カーネル 6.7 未満など）では実行できません。`pnpm dev` は、エージェントに書き換えられないよう、許可 root の外にある `$HOME/.local/libexec/u7agent` へラッパーを配置します。
+`bash` を実行するには、Linux と Landlock ABI 4 以上（カーネル 6.7 以上）が必要です。`bash` は書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホーム配下のキャッシュへ限るため、要件を満たさない環境（macOS、カーネル 6.7 未満など）では実行できません。`pnpm dev` は、エージェントに書き換えられないよう、許可 root の外にある `$HOME/.local/libexec/u7agent` へラッパーを配置します。一時共有に使う `cloudflared` も、サンドボックスの `PATH` に入れない `$HOME/.local/libexec/u7agent-bff` へ配置します（取得に失敗しても `pnpm dev` は続行し、一時共有だけが使えません）。
 
 - 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev` を使います（プロジェクト登録と未所属チャットの起点になります）
 - APIキーは起動後に 設定 → モデル から登録できます。アプリのデータベースに保存され、再起動後も使われます。`~/.pi/agent/auth.json` があれば不要です
@@ -57,6 +57,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - 利用可能なモデル、アプリ既定モデル、プロバイダーAPIキーは、起動後に 設定 → モデル から設定するのが既定です。アプリのデータベースへ保存され、再起動せずにモデル候補へ反映されます。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
 - 作業フォルダごとの環境変数（作業環境 → 環境変数）は GUI から登録します。変数は平文で保存し、エージェントの `bash` とサービスの両方から見えます。シークレットは保存時に暗号化し、サービスの起動時だけ注入します。エージェントの `bash` の env には入りません。APIキー / Webhook URL も同じ master key を使います。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数) にあります
 - ポートを変えると、プレビューの `localStorage` の保存領域も別になります。`pnpm dev` をもう 1 つ並行して起動するときは、プレビュー以外のポートも分けてください（[docs/frontend.md](docs/frontend.md#開発フローと配信)）
+- 一時共有（Cloudflare Quick Tunnel）の実体 `cloudflared` は、イメージに同梱し、`pnpm dev` が配置します。別のバイナリを使うときは `PI_CLOUDFLARED_PATH` で指します（`PATH` は探さず、エージェントが書ける場所のバイナリは使えません。対象は Linux で、macOS と Windows は使えません）。使うには、外向きに `7844` の TCP / UDP と `api.trycloudflare.com` の `443` が要ります（[docs/service-tunnel.md](docs/service-tunnel.md)）
 - HTTPS で公開するとき（TLS 終端をリバースプロキシに置くとき）は、ブラウザから見たオリジンを `PI_APP_ORIGIN` / `PI_FILE_PREVIEW_ORIGIN` / `PI_PREVIEW_ORIGIN` で渡してください。BFF が見るリクエストの scheme とずれるため、Origin 検査・アプリ CSP・プレビュー / サービスのリンクはこの値を使います（未設定は現行どおり。値の書式は [.env.example](.env.example)）
 
 ## セキュリティ

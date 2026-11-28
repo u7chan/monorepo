@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
+import { cloudflaredStatusLine, createCloudflaredLauncher } from "./cloudflared";
 import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
 import { publicOriginsLogLine, resolvePublicOrigins } from "./public-origin";
 import { resolvePreviewPort, resolveServiceListenPort } from "./preview-port";
@@ -14,6 +15,8 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENV_FILE = resolve(REPO_ROOT, ".env");
 if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
+// 作業領域。一時共有の起動基盤も、この配下をエージェントの書ける場所として扱う
+const APP_CWD = process.env.PI_APP_CWD || REPO_ROOT;
 const PORT = Number(process.env.PORT) || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
 // 2 本目のリスナー (プレビュー オリジン) の待受。既定は 4318
@@ -29,11 +32,21 @@ const PUBLIC_ORIGINS = resolvePublicOrigins(process.env);
 
 async function main() {
   const bff = await createBffApp({
-    cwd: process.env.PI_APP_CWD || REPO_ROOT,
+    cwd: APP_CWD,
     filePreviewPort: FILE_PREVIEW_PORT,
     previewPort: PREVIEW_PORT,
     ...PUBLIC_ORIGINS,
   });
+  const cloudflared = createCloudflaredLauncher({
+    env: process.env,
+    sessionStoreDir: bff.sessionStore.path,
+    rootCwd: APP_CWD,
+    instancePort: PORT,
+    log: (line) => console.log(`[u7agent] ${line}`),
+  });
+  // 前の BFF が残した cloudflared の掃除は起動を待たせない (起動する側が、終わるまで待つ)
+  void cloudflared.sweepOrphans();
+
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] http://${HOST}:${info.port}`);
     const publicOrigins = publicOriginsLogLine(PUBLIC_ORIGINS);
@@ -44,6 +57,7 @@ async function main() {
         ? `[u7agent] session store: ${bff.sessionStore.path ?? "disabled"}`
         : `[u7agent] session store unavailable: ${bff.sessionStore.error ?? "unknown"}`,
     );
+    console.log(`[u7agent] ${cloudflaredStatusLine(cloudflared.availability())}`);
     if (bff.pi?.defaultModelUnset) {
       console.log(
         "[u7agent] no app default model is selected. Choose one in Settings > Models before sending a message.",

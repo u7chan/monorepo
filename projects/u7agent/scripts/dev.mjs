@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
 import { installBrowser, resolveBrowsersDir } from "./install-browser.mjs";
 import { devBrowserCliDir, installBrowserCli } from "./install-browser-cli.mjs";
+import { devCloudflaredInstallDir, installCloudflared } from "./install-cloudflared.mjs";
 import { installLandlockWrapper } from "./install-landlock.mjs";
 // Node 26 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
 import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
@@ -171,6 +172,17 @@ async function main() {
     if (!installed.python) log("python3 が見つかりません。bash の実行には python3 が必要です");
   } catch (error) {
     log(`Landlock ラッパーを配置できませんでした (${error.message})。bash は実行できません`);
+  }
+  // 一時共有の実体。BFF だけが使う置き場へ入れ、サンドボックスの PATH には足さない (エージェントが名前で呼べないように)。
+  // 取得に失敗しても dev は続行する (この機能だけが使えない)
+  if (process.platform === "linux") {
+    try {
+      await installCloudflared({ dest: devCloudflaredInstallDir(), rootCwd: APP_CWD, log: (message) => log(message) });
+    } catch (error) {
+      log(`警告: cloudflared を配置できませんでした (${error.message})。一時共有は使えません`);
+    }
+  } else {
+    log("一時共有: Linux のみ対応です");
   }
   // ブラウザの入口と配布セット。取得に失敗しても dev は続行する (スキルが指す CLI が無い状態を作らないための配線)
   const browserCliDir = devBrowserCliDir();
