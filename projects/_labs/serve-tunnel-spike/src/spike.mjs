@@ -2,9 +2,9 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { access, constants, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, constants, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
@@ -41,6 +41,12 @@ function pidAlive(pid) {
   } catch {
     return false;
   }
+}
+
+function killQuietly(pid, signal = "SIGKILL") {
+  try {
+    process.kill(pid, signal);
+  } catch {}
 }
 
 async function tcpConnect(host, port, timeoutMs = 5000) {
@@ -438,15 +444,14 @@ async function runCycles(origin, count = 3) {
       });
       await tunnel.saveLog(`cycle-${cycle}`);
     } catch (error) {
-      const rejected = /status 429/i.test(error.message);
+      const rejected = isRateLimited(error);
+      // 後続の作成を抑止する判定は、ログ保存などの失敗より先に確定させる
+      if (rejected) rateLimited = true;
       results.push({ cycle, error: error.message, rejected });
-      await tunnel.stop();
-      await tunnel.saveLog(`cycle-${cycle}-failed`);
+      await tunnel.stop().catch(() => {});
+      await tunnel.saveLog(`cycle-${cycle}-failed`).catch(() => {});
       // 429 は作成の上限。続けても同じ結果になるので打ち切る
-      if (rejected) {
-        rateLimited = true;
-        break;
-      }
+      if (rejected) break;
     } finally {
       const index = cleanups.indexOf(cleanup);
       if (index >= 0) cleanups.splice(index, 1);
@@ -473,8 +478,7 @@ async function runCycles(origin, count = 3) {
 
 async function runOrphan(origin) {
   const metricsPort = await freePort();
-  const home = join(outDir, `home-orphan-${Date.now()}`);
-  await mkdir(home, { recursive: true });
+  const home = await mkdtemp(join(tmpdir(), "serve-tunnel-spike-"));
   const logPath = join(home, "cloudflared.log");
   const launcherCode = `
 const { spawn } = require("node:child_process");
@@ -499,15 +503,19 @@ setInterval(() => {}, 1000);
   const startedAt = performance.now();
   let pid;
   let orphanStop;
-  const orphanCleanup = () => {
-    if (pid && pidAlive(pid)) process.kill(pid, "SIGKILL");
+  const orphanCleanup = async () => {
+    // 子が先に終了していても、ランチャーのグループ停止へ進む
+    if (pid) killQuietly(pid);
     if (launcher.exitCode === null && launcher.signalCode === null) {
       try {
         process.kill(-launcher.pid, "SIGKILL");
       } catch {
-        launcher.kill("SIGKILL");
+        try {
+          launcher.kill("SIGKILL");
+        } catch {}
       }
     }
+    await rm(home, { recursive: true, force: true }).catch(() => {});
   };
   cleanups.push(orphanCleanup);
   try {
@@ -565,10 +573,10 @@ setInterval(() => {}, 1000);
       publicAfterKill = { dnsAnswerMs: dns.at, status: fetched.res.status, ms: fetched.ms };
     }
 
-    if (pidAlive(pid)) process.kill(pid, "SIGTERM");
+    killQuietly(pid, "SIGTERM");
     const gone = await waitGone(pid, 15000);
     if (!gone) {
-      process.kill(pid, "SIGKILL");
+      killQuietly(pid);
       await waitGone(pid, 5000);
     }
     orphanStop = { gone, metricsAfterStop: await fetch(`http://127.0.0.1:${metricsPort}/ready`, { signal: AbortSignal.timeout(2000) }).then((res) => res.status).catch(() => 0) };
@@ -583,11 +591,10 @@ setInterval(() => {}, 1000);
     );
   } finally {
     if (pid && pidAlive(pid)) {
-      process.kill(pid, "SIGTERM");
-      if (!(await waitGone(pid, 10000))) process.kill(pid, "SIGKILL");
+      killQuietly(pid, "SIGTERM");
+      if (!(await waitGone(pid, 10000))) killQuietly(pid);
     }
-    orphanCleanup();
-    await rm(home, { recursive: true, force: true });
+    await orphanCleanup();
     const index = cleanups.indexOf(orphanCleanup);
     if (index >= 0) cleanups.splice(index, 1);
   }

@@ -9,12 +9,19 @@ export const BINARY = fileURLToPath(new URL("../tools/cloudflared", import.meta.
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function mask(text) {
+  // IPv4 を先に潰すと埋め込み形式の IPv6 が残るため、埋め込みを先に 1 つのアドレスとして扱う
+  const ipv4 = String.raw`(?:\d{1,3}\.){3}\d{1,3}`;
+  const ipv6WithIpv4 = new RegExp(
+    String.raw`(?<![\w:])(?:(?:[0-9a-f]{1,4}:){1,7}:?|::)(?:[0-9a-f]{1,4}:){0,6}${ipv4}(?![\w.])`,
+    "gi",
+  );
   return String(text)
     .replace(/[a-z0-9-]+\.trycloudflare\.com/gi, "<random>.trycloudflare.com")
+    .replace(ipv6WithIpv4, "<ipv6>")
     .replace(/\b(?!127\.)(?!0\.0\.0\.0)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<ip>")
-    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}(?![0-9a-f:])/gi, "<ipv6>")
-    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f:])/gi, "<ipv6>")
-    .replace(/(?<![\w:])::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f:])/gi, "<ipv6>");
+    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}(?![0-9a-f])/gi, "<ipv6>")
+    .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f])/gi, "<ipv6>")
+    .replace(/(?<![\w:])::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![0-9a-f])/gi, "<ipv6>");
 }
 
 export function freePort() {
