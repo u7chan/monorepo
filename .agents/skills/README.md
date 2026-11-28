@@ -12,3 +12,4 @@
 | [github-dependabot-maintain](github-dependabot-maintain/SKILL.md) | `.github/dependabot.yml` を `projects/` 構成と同期させる |
 | [monorepo-worktree-create](monorepo-worktree-create/SKILL.md) | 指定したプロジェクト起点で Herdr ワークツリー workspace を作る（base の既定は `main`） |
 | [dependabot-pr-batch-process](dependabot-pr-batch-process/SKILL.md) | 明示依頼時のみ、ラベル付き Dependabot PR を保守的に監査し順に squash merge |
+| [comment-ratchet](comment-ratchet/SKILL.md) | コメントの行数予算を ratchet で返済する（検出器 → 予算 → バッチ返済 → 引き下げ） |
