@@ -282,25 +282,6 @@ PIN とセッション鍵は環境変数では渡さない。
 （ビルド時に約 370 MB を取得する）。バイナリは root 所有の 0755 で置き、実行ユーザーからは書き換えられない。
 実行ユーザーはこのファイルを置き換えられないため、自動更新が試されても版は Dockerfile の `CLAUDE_CODE_VERSION` のまま固定される。
 
-### Claude Code CLI の版更新
-
-Dependabot はこの取得経路（`FROM` 行を持たない直ダウンロード）を追えないため、`.github/workflows/claude-cli-version-check.yml` が
-週次（月曜 06:00 JST）で `https://downloads.claude.ai/claude-code-releases/stable` と固定版を比べ、新しい版があれば
-`CLAUDE_CODE_VERSION` を上げる PR を作る。PR の作成までを自動化し、マージと次の確認は人間が行う。
-
-1. 上げた版の manifest に linux-x64 / linux-arm64 の checksum があることと、`claude-cli` ステージのビルド
-   （checksum 検証と `claude --version`）は workflow が確認する。失敗したら PR は作られない
-2. PR のブランチでも、新しい版の CLI を実際に動かして `/usage` と認証状態の出力を確かめる
-
-   ```bash
-   docker exec <コンテナ> claude -p /usage --output-format json --no-session-persistence | jq -r .result
-   docker exec <コンテナ> claude auth status --json
-   ```
-
-   出力が `test/providers-claude.test.ts` の fixture と違っていれば、fixture と `src/server/providers/claude.ts` を直す。
-   workflow は `GITHUB_TOKEN` で PR を作るため CI は自動で走らない。この確認で 1 コミット push すれば CI が走る。
-3. `stable` は新しい版より遅れて追いつくことがある。固定版のほうが進んでいるときは下げる提案をしない
-
 ```bash
 docker build --target test -t usage-portal-test ./projects/usage-portal
 docker build --target final -t usage-portal-final ./projects/usage-portal
@@ -316,6 +297,29 @@ docker run --rm -p 3000:3000 \
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
 - `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**。Claude の資格情報はカードの「ログアウトして非表示」で CLI が削除する
+
+### Claude Code CLI の版更新
+
+Dependabot はこの取得経路（`FROM` 行を持たない直ダウンロード）を追えないため、
+[.github/workflows/claude-cli-version-check.yml](../../.github/workflows/claude-cli-version-check.yml) が
+週次（月曜 06:00 JST）で `https://downloads.claude.ai/claude-code-releases/stable` と固定版を比べ、新しい版があれば
+`CLAUDE_CODE_VERSION` を上げる PR を作る。PR の作成までを自動化し、マージと次の確認は人間が行う。
+
+1. 上げた版の manifest に linux-x64 / linux-arm64 の checksum があることと、`claude-cli` ステージのビルド
+   （checksum 検証と `claude --version`）は workflow が確認する。失敗したら PR は作られない
+2. PR のブランチでも、新しい版の CLI を実際に動かして `/usage` と認証状態の出力を確かめる
+
+   ```bash
+   docker exec <コンテナ> claude -p /usage --output-format json --no-session-persistence | jq -r .result
+   docker exec <コンテナ> claude auth status --json
+   ```
+
+   出力が `test/providers-claude.test.ts` の fixture と違っていれば、fixture と `src/server/providers/claude.ts` を直す。
+   workflow は `GITHUB_TOKEN` で PR を作るため CI は自動で走らない。この確認で 1 コミット push すれば CI が走る。
+3. `stable` は新しい版より遅れて追いつくことがある。固定版のほうが進んでいるときは下げる提案をしない
+4. PR の作成には repository の設定（Settings → Actions → General → Workflow permissions の
+   「Allow GitHub Actions to create and approve pull requests」）が必要。無効のままだと、ブランチを push した
+   あとの `gh pr create` だけが失敗する
 
 ## ディレクトリ構成
 
