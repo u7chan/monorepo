@@ -1,9 +1,10 @@
-// scripts/install-cloudflared.mjs の契約を検証する。実ネットワークは使わず、fetch と sha256 の表を差し替える。
-// 取得した実体の sha256 を固定値と照合することが信頼の境界なので、不一致のとき何も配置しないことを主に見る。
+// scripts/install-cloudflared.mjs の契約を検証する。実ネットワークも実プロセスも使わず、fetch・sha256 の表・
+// バージョン確認を差し替える。取得した実体の sha256 を固定値と照合することが信頼の境界なので、不一致のとき
+// 何も配置しないことを主に見る。
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,6 +15,11 @@ const VERSION: string = installer.CLOUDFLARED_VERSION;
 const BINARY = `#!/bin/sh\necho "cloudflared version ${VERSION} (built test)"\n`;
 const digest = (content: string): string => createHash("sha256").update(content).digest("hex");
 const CHECKSUMS = { x64: digest(BINARY), arm64: digest(BINARY) };
+/** 実際の `--version` の代役。実プロセスを起こさず、置いた中身から判定する */
+const verifyVersion = async (path: string): Promise<string> => {
+  const text = await readFile(path, "utf8").catch(() => "");
+  return text === BINARY ? `cloudflared version ${VERSION} (built test)` : "";
+};
 
 function stubFetch(body: string, status = 200) {
   const urls: string[] = [];
@@ -24,14 +30,24 @@ function stubFetch(body: string, status = 200) {
   return { urls, fetchImpl };
 }
 
-async function withDest(run: (dest: string) => Promise<void>): Promise<void> {
+async function withDest(run: (dest: string, base: string) => Promise<void>): Promise<void> {
   const base = await mkdtemp(join(tmpdir(), "u7agent-cloudflared-install-"));
   try {
-    await run(join(base, "libexec"));
+    await run(join(base, "libexec"), base);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
 }
+
+/** テストの置き場は /tmp 配下なので、固定の書き込み先を外して「書けない場所」として扱う */
+const base = (dest: string) => ({
+  dest,
+  arch: "x64" as const,
+  platform: "linux" as const,
+  checksums: CHECKSUMS,
+  verifyVersion,
+  writeRoots: [] as string[],
+});
 
 test("固定した版の asset を取得し、sha256 が合えば実行できる形で配置する", async () => {
   await withDest(async (dest) => {
@@ -40,13 +56,7 @@ test("固定した版の asset を取得し、sha256 が合えば実行できる
       ["arm64", "cloudflared-linux-arm64"],
     ] as const) {
       const { urls, fetchImpl } = stubFetch(BINARY);
-      const result = await installer.installCloudflared({
-        dest,
-        fetchImpl,
-        arch,
-        platform: "linux",
-        checksums: CHECKSUMS,
-      });
+      const result = await installer.installCloudflared({ ...base(dest), fetchImpl, arch });
       assert.deepEqual(urls, [`https://github.com/cloudflare/cloudflared/releases/download/${VERSION}/${asset}`]);
       assert.deepEqual(result, { path: join(dest, "cloudflared"), installed: true });
       assert.equal((await stat(result.path)).mode & 0o777, 0o755);
@@ -60,28 +70,24 @@ test("固定した版の asset を取得し、sha256 が合えば実行できる
 test("sha256 が合わなければ何も配置しない", async () => {
   await withDest(async (dest) => {
     const { fetchImpl } = stubFetch(`${BINARY}# tampered\n`);
-    await assert.rejects(
-      installer.installCloudflared({ dest, fetchImpl, arch: "x64", platform: "linux", checksums: CHECKSUMS }),
-      /sha256 mismatch/,
-    );
+    await assert.rejects(installer.installCloudflared({ ...base(dest), fetchImpl }), /sha256 mismatch/);
     assert.deepEqual(await readdir(dest).catch(() => []), []);
   });
 });
 
 test("同じ版が配置済みなら取り直さず、中身が違えば取り直す", async () => {
   await withDest(async (dest) => {
-    const options = { dest, arch: "x64", platform: "linux", checksums: CHECKSUMS };
     const first = stubFetch(BINARY);
-    await installer.installCloudflared({ ...options, fetchImpl: first.fetchImpl });
+    await installer.installCloudflared({ ...base(dest), fetchImpl: first.fetchImpl });
 
     const second = stubFetch(BINARY);
-    const again = await installer.installCloudflared({ ...options, fetchImpl: second.fetchImpl });
+    const again = await installer.installCloudflared({ ...base(dest), fetchImpl: second.fetchImpl });
     assert.equal(again.installed, false);
     assert.deepEqual(second.urls, []);
 
     await writeFile(join(dest, "cloudflared"), "#!/bin/sh\necho replaced\n", { mode: 0o755 });
     const third = stubFetch(BINARY);
-    const repaired = await installer.installCloudflared({ ...options, fetchImpl: third.fetchImpl });
+    const repaired = await installer.installCloudflared({ ...base(dest), fetchImpl: third.fetchImpl });
     assert.equal(repaired.installed, true);
     assert.equal(third.urls.length, 1);
     assert.equal(await readFile(join(dest, "cloudflared"), "utf8"), BINARY);
@@ -90,14 +96,13 @@ test("同じ版が配置済みなら取り直さず、中身が違えば取り�
 
 test("取得の失敗・linux 以外・未対応のアーキテクチャ・配置先なしは、明示のエラーにする", async () => {
   await withDest(async (dest) => {
-    const base = { dest, arch: "x64", platform: "linux", checksums: CHECKSUMS };
     await assert.rejects(
-      installer.installCloudflared({ ...base, fetchImpl: stubFetch("", 404).fetchImpl }),
+      installer.installCloudflared({ ...base(dest), fetchImpl: stubFetch("", 404).fetchImpl }),
       /HTTP 404/,
     );
-    await assert.rejects(installer.installCloudflared({ ...base, platform: "darwin" }), /unsupported platform/);
-    await assert.rejects(installer.installCloudflared({ ...base, arch: "ia32" }), /unsupported architecture/);
-    await assert.rejects(installer.installCloudflared({ ...base, dest: undefined }), /配置先/);
+    await assert.rejects(installer.installCloudflared({ ...base(dest), platform: "darwin" }), /unsupported platform/);
+    await assert.rejects(installer.installCloudflared({ ...base(dest), arch: "ia32" }), /unsupported architecture/);
+    await assert.rejects(installer.installCloudflared({ ...base(dest), dest: undefined }), /配置先/);
     assert.deepEqual(await readdir(dest).catch(() => []), []);
   });
 });
@@ -108,13 +113,7 @@ test("固定の版と合わない既存の実体は、取り直しに失敗し�
     await writeFile(join(dest, "cloudflared"), "#!/bin/sh\necho an older build\n", { mode: 0o755 });
 
     await assert.rejects(
-      installer.installCloudflared({
-        dest,
-        fetchImpl: stubFetch("", 503).fetchImpl,
-        arch: "x64",
-        platform: "linux",
-        checksums: CHECKSUMS,
-      }),
+      installer.installCloudflared({ ...base(dest), fetchImpl: stubFetch("", 503).fetchImpl }),
       /HTTP 503/,
     );
     assert.deepEqual(await readdir(dest), [], "検証に落ちた実体を、BFF が選べないようにする");
@@ -126,15 +125,71 @@ test("動かない実体は、sha256 が合っていても公開しない", asyn
     const broken = "#!/bin/sh\nexit 1\n";
     await assert.rejects(
       installer.installCloudflared({
-        dest,
+        ...base(dest),
         fetchImpl: stubFetch(broken).fetchImpl,
-        arch: "x64",
-        platform: "linux",
         checksums: { x64: digest(broken), arm64: digest(broken) },
       }),
       /not runnable/,
     );
     assert.deepEqual(await readdir(dest), [], "探索先にも、書き込み途中の実体にも残らない");
+  });
+});
+
+test("配置先がエージェントの書き込める場所なら、検証も取得もしない", async () => {
+  await withDest(async (dest, root) => {
+    const fetch = stubFetch(BINARY);
+    await assert.rejects(
+      installer.installCloudflared({ ...base(dest), fetchImpl: fetch.fetchImpl, writeRoots: [root] }),
+      /エージェントの書き込める場所/,
+    );
+    assert.deepEqual(fetch.urls, []);
+    assert.deepEqual(await readdir(dest).catch(() => []), []);
+  });
+});
+
+test("配置先が書き込み先への symlink でも、実体で判定して拒否する", async () => {
+  await withDest(async (dest, root) => {
+    const writable = join(root, "writable");
+    await mkdir(writable);
+    await symlink(writable, dest);
+    const fetch = stubFetch(BINARY);
+    await assert.rejects(
+      installer.installCloudflared({ ...base(dest), fetchImpl: fetch.fetchImpl, writeRoots: [writable] }),
+      /エージェントの書き込める場所/,
+    );
+    assert.deepEqual(fetch.urls, []);
+    assert.deepEqual(await readdir(writable), []);
+  });
+});
+
+test("並行して配置しても、検証と公開は重ならず、片方の失敗がもう片方の公開を消さない", async () => {
+  await withDest(async (dest) => {
+    let active = 0;
+    let maxActive = 0;
+    let arrived = 0;
+    let releaseBoth: () => void = () => {};
+    const both = new Promise<void>((resolveBoth) => {
+      releaseBoth = resolveBoth;
+    });
+    const tracked = (body: string, status: number) => async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      arrived += 1;
+      if (arrived === 2) releaseBoth();
+      // ロックが無ければ 2 本がここで重なる。ロックがあれば 1 本目だけが待つ
+      await Promise.race([both, new Promise((done) => setTimeout(done, 200))]);
+      active -= 1;
+      return new Response(status === 200 ? body : "", { status });
+    };
+
+    const results = await Promise.allSettled([
+      installer.installCloudflared({ ...base(dest), fetchImpl: tracked("", 503) }),
+      installer.installCloudflared({ ...base(dest), fetchImpl: tracked(BINARY, 200) }),
+    ]);
+    assert.ok(results.some((result) => result.status === "fulfilled"));
+    assert.equal(maxActive, 1, "検証と公開を直列にする");
+    assert.equal(await readFile(join(dest, "cloudflared"), "utf8"), BINARY, "成功した側の公開を残す");
+    assert.deepEqual(await readdir(dest), ["cloudflared"], "ロックを残さない");
   });
 });
 

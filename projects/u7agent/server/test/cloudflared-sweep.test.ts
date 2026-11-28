@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   type ProcessReading,
   type SignalOutcome,
 } from "../src/cloudflared";
+import type { ProcessRef } from "../src/pidfd";
 import { createHarness, writeExecutable } from "./cloudflared-harness";
 
 const FIXED_ARGS = [
@@ -47,6 +48,10 @@ class ProcessTable {
   readonly denied = new Set<number>();
   readonly ignoresTerm = new Set<number>();
   readonly immortal = new Set<number>();
+  /** pidfd を開けるか (開けない環境では掃除は何も送らない) */
+  refsAvailable = true;
+  openedRefs = 0;
+  closedRefs = 0;
   /** 観測のあとに呼ぶ。並行して起動した BFF を差し込む */
   afterRead?: (pid: number) => void;
   /** シグナルのあとに呼ぶ。pid の再利用を差し込む */
@@ -67,6 +72,19 @@ class ProcessTable {
     this.afterSignal?.(pid, signal);
     return "sent";
   };
+
+  /** pidfd の代役。開いた時点の実物を掴み、pid が再利用されたら別のプロセスへは届かない */
+  readonly openProcessRef = async (pid: number): Promise<ProcessRef | undefined> => {
+    const bound = this.table.get(pid);
+    if (!this.refsAvailable || !bound || bound.state !== "present") return undefined;
+    this.openedRefs += 1;
+    return {
+      send: (signal) => (this.table.get(pid) === bound ? this.signalProcess(pid, signal) : "gone"),
+      close: () => {
+        this.closedRefs += 1;
+      },
+    };
+  };
 }
 
 interface Fixture {
@@ -76,7 +94,7 @@ interface Fixture {
   procs: ProcessTable;
   launcher: CloudflaredLauncher;
   /** 起動した子として実物が持つ素性 (cwd は専用 HOME)。記録に書く値の元にもなる */
-  genuine(pid: number, home: string): Present;
+  genuine(pid: number, home: string, ppid?: number): Present;
   writeRecord(name: string, record: unknown): Promise<void>;
   makeHome(name: string): Promise<void>;
   cleanup(): Promise<void>;
@@ -100,6 +118,7 @@ async function createFixture(): Promise<Fixture> {
     exe: process.execPath,
     argv: [process.execPath],
     cwd: process.cwd(),
+    ppid: 1,
   });
 
   return {
@@ -114,15 +133,16 @@ async function createFixture(): Promise<Fixture> {
       writeRoots: [join(base, "agent-writable")],
       instancePort: 4317,
       readProcess: procs.readProcess,
-      signalProcess: procs.signalProcess,
+      openProcessRef: procs.openProcessRef,
       sweepTermWaitMs: 40,
     }),
-    genuine: (pid, home) => ({
+    genuine: (pid, home, ppid = 1) => ({
       state: "present",
       startedAtMs: 10_000 + pid,
       exe: binary,
       argv: [binary, ...FIXED_ARGS],
       cwd: join(stateDir, home),
+      ppid,
     }),
     writeRecord: (name, record) => writeFile(join(stateDir, name), JSON.stringify(record)),
     makeHome: async (name) => {
@@ -246,6 +266,94 @@ test("記録が他のプロセスを指していても殺さない (実物の実
     assert.equal(report.removedRecords, cases.length, "一致しないときは、何も殺さず記録だけ消す");
     assert.deepEqual(f.procs.signals, []);
     assert.deepEqual(await readdir(f.stateDir), []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("記録の owner が死んでいても、実際の親が生きている子は止めない (記録の書き換えで親を偽れない)", async () => {
+  const f = await createFixture();
+  try {
+    const reading = f.genuine(5001, HOME, process.pid);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, record(DEAD_OWNER, HOME, identity(5001, reading)));
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD], "親が居るあいだは、次の掃除に任せる");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("記録の home がファイル名と違えば、その home を cwd の根拠にしない", async () => {
+  const f = await createFixture();
+  try {
+    const realHome = "home-4317-11111111";
+    const reading = f.genuine(5001, realHome);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(realHome);
+    // 正規の記録の名前で、別の home を指す
+    await f.writeRecord("pid-4317-22222222.json", record(DEAD_OWNER, realHome, identity(5001, reading)));
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 1, removedHomes: 1 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual(await readdir(f.stateDir), []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("pidfd を開けない環境では、記録と一致しても送らず、記録と専用 HOME を残す", async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    f.procs.refsAvailable = false;
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 1, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, [], "数値の pid へ落とさない");
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("照合のあと、pidfd を開くまでに pid が再利用されたら、そのプロセスへは送らない", async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    f.procs.afterRead = (pid) => {
+      if (pid !== 5001) return;
+      f.procs.afterRead = undefined;
+      f.procs.table.set(pid, {
+        ...f.genuine(pid, HOME),
+        startedAtMs: 99_999,
+        exe: "/usr/bin/bystander",
+        argv: ["/usr/bin/bystander"],
+      });
+    };
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 1, removedHomes: 1 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.equal(f.procs.openedRefs, 1);
+    assert.equal(f.procs.closedRefs, 1, "掴んだ参照は閉じる");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("読めない記録は、観測不能として記録も専用 HOME も残す", { skip: process.getuid?.() === 0 }, async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    const path = join(f.stateDir, RECORD);
+    await chmod(path, 0o000);
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+    await chmod(path, 0o600);
   } finally {
     await f.cleanup();
   }

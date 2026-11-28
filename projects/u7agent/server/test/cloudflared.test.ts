@@ -211,21 +211,15 @@ test("置き場 (tunnel/) とその親の実体が書き込み先かワークス
   }
 });
 
-test("linux 以外は利用不可。ただし PI_CLOUDFLARED_PATH で指せば使える", async () => {
+test("linux 以外は利用不可。PI_CLOUDFLARED_PATH で指しても使わない", async () => {
   const t = await resolveTree();
   try {
     const binary = join(t.binDir, "cloudflared");
     await writeExecutable(binary);
-    assert.deepEqual(
-      resolveCloudflared({ ...t.options(undefined), platform: "darwin" }),
-      unavailable("unsupported_platform"),
-    );
-    assert.equal(resolveCloudflared({ ...t.options(binary), platform: "darwin" }).available, true);
-    // 設定に渡す /dev/null が Unix の前提なので、Windows は指定しても使わない
-    assert.deepEqual(
-      resolveCloudflared({ ...t.options(binary), platform: "win32" }),
-      unavailable("unsupported_platform"),
-    );
+    for (const platform of ["darwin", "win32"] as const) {
+      assert.deepEqual(resolveCloudflared({ ...t.options(undefined), platform }), unavailable("unsupported_platform"));
+      assert.deepEqual(resolveCloudflared({ ...t.options(binary), platform }), unavailable("unsupported_platform"));
+    }
   } finally {
     await t.cleanup();
   }
@@ -532,6 +526,34 @@ test("起動のたびに利用可否を確かめ直し、置き場が書き込�
   }
 });
 
+test("自分を観測できないときは、記録なしで子を起こさず unavailable にする", async () => {
+  const h = await createHarness({
+    readProcess: async (pid) =>
+      pid === process.pid
+        ? { state: "unknown" }
+        : {
+            state: "present",
+            startedAtMs: 1,
+            exe: process.execPath,
+            argv: [process.execPath],
+            cwd: process.cwd(),
+            ppid: 1,
+          },
+  });
+  try {
+    const error = await h.launch().ready.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    assert.ok(error instanceof CloudflaredLaunchError);
+    assert.equal(error.kind, "unavailable");
+    assert.equal(error.unavailableReason, "proc_unavailable");
+    assert.equal(h.calls.length, 0, "記録の無い HOME を作らない");
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("起動中の stop() は起動を中断し、子と専用 HOME と記録を片付ける", async () => {
   const h = await createHarness();
   try {
@@ -674,7 +696,7 @@ test("killLiveCloudflared は生きている子を即座に殺し、専用 HOME 
 
     killLiveCloudflared();
     assert.deepEqual(h.calls[0]?.child.signals, ["SIGKILL"]);
-    assert.deepEqual(await readdir(h.stateDir), []);
+    await waitFor(async () => (await readdir(h.stateDir)).length === 0, "子が終わったあとの片付け");
     await handle.stop();
   } finally {
     await h.dispose();
@@ -760,8 +782,7 @@ test("応答を待っている間に stop() しても、ready は成功になら
   try {
     const release = holdResponses(h);
     const handle = h.launch();
-    await waitFor(() => h.calls.length === 1, "spawn");
-    await sleep(60);
+    await waitFor(() => h.requests >= 2, "両方の probe が届く");
     const stopping = handle.stop();
     release();
     await assert.rejects(
@@ -779,14 +800,33 @@ test("応答を待っている間に子が終わっても、ready は成功に�
   try {
     const release = holdResponses(h);
     const handle = h.launch();
-    await waitFor(() => h.calls.length === 1, "spawn");
-    await sleep(60);
+    await waitFor(() => h.requests >= 2, "両方の probe が届く");
     await h.calls[0]?.child.exit(1);
     release();
     await assert.rejects(
       handle.ready,
       (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "exited",
     );
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("子の exit だけが届いたら、保留中の応答が 200 でも ready にしない", async () => {
+  const h = await createHarness({ deadlineMs: 3000 });
+  try {
+    const release = holdResponses(h);
+    const handle = h.launch();
+    await waitFor(() => h.requests >= 2, "両方の probe が届く");
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+    child.exitOnly(1);
+    release();
+    await assert.rejects(
+      handle.ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "exited",
+    );
+    child.closeAfterExit(1);
   } finally {
     await h.dispose();
   }
@@ -811,6 +851,56 @@ test("応答を待っている間に期限を過ぎたら、応答を待たず�
   }
 });
 
+test("掃除の観測が期限を超えたら、待ち続けずに timeout にし、子を起こさない", async () => {
+  const h = await createHarness({
+    deadlineMs: 150,
+    readProcess: async (pid) =>
+      pid === process.pid
+        ? {
+            state: "present",
+            startedAtMs: 1,
+            exe: process.execPath,
+            argv: [process.execPath],
+            cwd: process.cwd(),
+            ppid: 1,
+          }
+        : new Promise(() => {}),
+  });
+  try {
+    await mkdir(h.stateDir, { recursive: true });
+    await writeFile(
+      join(h.stateDir, "pid-4317-aaaaaaaa.json"),
+      JSON.stringify({ version: 1, owner: { pid: 5001, startedAtMs: 1 }, home: "home-4317-aaaaaaaa", child: null }),
+    );
+    const started = Date.now();
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
+    );
+    assert.ok(Date.now() - started < 1000, "掃除の完了を待たない");
+    assert.equal(h.calls.length, 0, "期限のあとに子を起こさない");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("待受の所有確認が期限を超えたら、待ち続けずに timeout にする", async () => {
+  const h = await createHarness({ deadlineMs: 150, listenerOwner: () => new Promise(() => {}) });
+  try {
+    const handle = h.launch();
+    const settled = await Promise.race([
+      handle.ready.then(
+        () => "resolved",
+        (error: unknown) => (error instanceof CloudflaredLaunchError ? error.kind : "other"),
+      ),
+      sleep(1000).then(() => "still waiting"),
+    ]);
+    assert.equal(settled, "timeout");
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("待受が子のものと確かめられないうちは、応答があっても ready にしない", async () => {
   const h = await createHarness();
   try {
@@ -828,13 +918,16 @@ test("待受が子のものと確かめられないうちは、応答があっ�
   }
 });
 
-test("待受の所有を確かめられない環境 (/proc が無い) では、応答をそのまま採る", async () => {
-  const h = await createHarness();
+test("待受の所有を確かめられない (unknown) ときは、応答を採らない", async () => {
+  const h = await createHarness({ deadlineMs: 250 });
   try {
     h.behavior.listenerOwner = "unknown";
     h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
     h.metrics.readyStatus = 200;
-    assert.deepEqual(await h.launch().ready, { url: `https://${QUICK_TUNNEL_HOSTNAME}` });
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
+    );
   } finally {
     await h.dispose();
   }

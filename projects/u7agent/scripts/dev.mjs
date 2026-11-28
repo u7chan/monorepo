@@ -177,12 +177,12 @@ async function main() {
   // 取得に失敗しても dev は続行する (この機能だけが使えない)
   if (process.platform === "linux") {
     try {
-      await installCloudflared({ dest: devCloudflaredInstallDir(), log: (message) => log(message) });
+      await installCloudflared({ dest: devCloudflaredInstallDir(), rootCwd: APP_CWD, log: (message) => log(message) });
     } catch (error) {
       log(`警告: cloudflared を配置できませんでした (${error.message})。一時共有は使えません`);
     }
   } else {
-    log("一時共有: linux 以外では、PI_CLOUDFLARED_PATH で cloudflared のパスを指定してください");
+    log("一時共有: Linux のみ対応です");
   }
   // ブラウザの入口と配布セット。取得に失敗しても dev は続行する (スキルが指す CLI が無い状態を作らないための配線)
   const browserCliDir = devBrowserCliDir();

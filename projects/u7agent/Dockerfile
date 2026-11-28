@@ -36,8 +36,11 @@ COPY server/package.json ./server/package.json
 FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
-COPY scripts/install-cloudflared.mjs /tmp/install-cloudflared.mjs
-RUN node /tmp/install-cloudflared.mjs /usr/local/libexec/u7agent
+COPY scripts/install-cloudflared.mjs /tmp/installer/scripts/install-cloudflared.mjs
+# 配置先がエージェントの書き込み先かを見る判定は BFF と共有する (.ts は Node 26 の型ストリッピングで読む)
+COPY server/src/agent-write-roots.ts /tmp/installer/server/src/agent-write-roots.ts
+COPY package.json /tmp/installer/package.json
+RUN node /tmp/installer/scripts/install-cloudflared.mjs /usr/local/libexec/u7agent
 
 FROM manifests AS dependencies
 RUN pnpm install --frozen-lockfile

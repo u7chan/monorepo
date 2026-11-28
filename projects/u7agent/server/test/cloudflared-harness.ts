@@ -81,6 +81,20 @@ export class FakeChild extends EventEmitter {
     this.emit("exit", code, signal);
     this.emit("close", code, signal);
   }
+
+  /** `exit` だけを先に出す (stdio の `close` はまだ来ない)。起動の確認が成功に転じないことを見る */
+  exitOnly(code: number | null, signal: NodeJS.Signals | null = null): void {
+    this.closed = true;
+    this.emit("exit", code, signal);
+  }
+
+  /** 遅れて `close` が来る */
+  closeAfterExit(code: number | null, signal: NodeJS.Signals | null = null): void {
+    this.stdout.end();
+    this.stderr.end();
+    this.onClosed();
+    this.emit("close", code, signal);
+  }
 }
 
 export interface SpawnCall {
@@ -108,6 +122,8 @@ export interface Harness {
    * `gate` があれば、どの応答もそれが解けるまで保留する (応答を待っている間の停止・終了・期限を試すため)
    */
   metrics: { quickTunnelBody: string | null; quickTunnelStatus: number; readyStatus: number; gate?: Promise<void> };
+  /** 受けた probe の数 (応答を保留したまま、両方の要求が届いたことを確かめる) */
+  requests: number;
   behavior: {
     /** SIGTERM に応えず、SIGKILL まで残る */
     ignoreSigterm: boolean;
@@ -153,6 +169,7 @@ export async function createHarness(
     writableRoot,
     calls,
     metrics: { quickTunnelBody: null, quickTunnelStatus: 200, readyStatus: 503 },
+    requests: 0,
     behavior: { ignoreSigterm: false },
     launcher: undefined as unknown as CloudflaredLauncher,
     launch: (originPort = 41_234) => {
@@ -169,6 +186,7 @@ export async function createHarness(
 
   const startMetrics = (port: number): Server => {
     const server = createServer(async (request, response) => {
+      harness.requests += 1;
       await harness.metrics.gate;
       if (request.url === "/quicktunnel" && harness.metrics.quickTunnelBody !== null) {
         response.writeHead(harness.metrics.quickTunnelStatus, { "content-type": "text/plain" });
@@ -207,6 +225,8 @@ export async function createHarness(
     calls.push(call);
     if (harness.behavior.spawnError) {
       const error = harness.behavior.spawnError;
+      // 本物の spawn 失敗には pid が無い。kill の失敗 (EPERM) と区別するために同じ形にする
+      Object.defineProperty(child, "pid", { value: undefined });
       setImmediate(() => {
         child.emit("error", error);
         void child.exit(-2);
@@ -227,6 +247,7 @@ export async function createHarness(
           exe: harness.realBinary,
           argv: [call.command, ...call.args],
           cwd: call.cwd,
+          ppid: process.pid,
         }
       : {
           state: "present",
@@ -234,6 +255,7 @@ export async function createHarness(
           exe: process.execPath,
           argv: [process.execPath],
           cwd: process.cwd(),
+          ppid: 1,
         };
   };
 
