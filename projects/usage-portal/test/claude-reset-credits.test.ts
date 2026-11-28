@@ -85,12 +85,13 @@ describe("parseClaudeResetCredits", () => {
     expect(parseClaudeResetCredits(cedar([{ ...valid, resets_left: 1.5 }]), NOW)).toBeNull();
     expect(parseClaudeResetCredits(cedar([{ ...valid, resets_left: -1 }]), NOW)).toBeNull();
     expect(parseClaudeResetCredits(cedar([{ ...valid, ends_at: 123 }]), NOW)).toBeNull();
+    expect(parseClaudeResetCredits(cedar([{ resets_left: 1 }]), NOW)).toBeNull();
     expect(parseClaudeResetCredits(cedar([{ ...valid, ends_at: "not-a-date" }]), NOW)).toBeNull();
     expect(parseClaudeResetCredits(cedar([{ ends_at: valid.ends_at }]), NOW)).toBeNull();
     expect(parseClaudeResetCredits(cedar(["not-an-object"]), NOW)).toBeNull();
   });
 
-  test("eligible: false だけを 0 件とし、null や欠損は取得失敗にする", () => {
+  test("0 件は eligible: false と grants の欠落だけ、null や形の欠損は取得失敗にする", () => {
     expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, grants: [] } }, NOW)).toEqual({
       available: 0,
       expiries: [],

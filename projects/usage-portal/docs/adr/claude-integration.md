@@ -61,8 +61,9 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
 - `grants[]` のうち `resets_left > 0` かつ `ends_at > now` を採用する。回数は `resets_left` の合計、期限は
   `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。期限の無い grant（`ends_at: null`）は
   今の表示モデルで表せないため対象外にする。
-- `eligible: false` だけを 0 件とする。`cedar_ember` が null、または `grants[]` の行が読めない応答は、0 件ではなく
-  取得失敗として扱う（前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
+- 0 件とするのは `eligible: false` のときと、`grants[]` が空・未設定のときだけ。`cedar_ember` が null、
+  行や `ends_at` の形が読めない応答（キーの欠落を含む）は、0 件ではなく取得失敗として扱う
+  （前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
 - `cedar_ember` の形が変わったら adapter を直す。
 - 結果は `/usage` の snapshot とは別の 1 行（`claude_reset_credits`）に保存し、通常の更新で消えないようにする。
   取得失敗は前回の値を残して error だけを更新し、ログアウトで行ごと消す。

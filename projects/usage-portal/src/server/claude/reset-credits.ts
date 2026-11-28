@@ -60,8 +60,8 @@ export function readClaudeAccessToken(credentialDir: string, now: number): strin
 
 /**
  * 詳細 API の応答から、残っている grant だけを読む。
- * `eligible: false` だけが「枠なし」。`cedar_ember` や grant の形が読めない応答は、
- * 0 件ではなく null（取得失敗）にして、前回の値を 0 件で上書きしない。
+ * 0 件は `eligible: false` か、`grants` が空・未設定のときだけ。`cedar_ember` や grant の形が
+ * 読めない応答（`ends_at` の欠落を含む）は null（取得失敗）にして、前回の値を 0 件で上書きしない。
  */
 export function parseClaudeResetCredits(body: unknown, now: number): ClaudeResetCreditsValue | null {
   if (typeof body !== "object" || body === null) {
@@ -113,8 +113,13 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
 
     const rawEndsAt = record.ends_at;
 
+    // `ends_at` キーの欠落は改名などの形の変化。null だけが「期限なし」を表す。
+    if (rawEndsAt === undefined) {
+      return null;
+    }
+
     // 期限の無い grant は今の表示モデル（期限の一覧）で表せないため対象外にする。
-    if (rawEndsAt === null || rawEndsAt === undefined) {
+    if (rawEndsAt === null) {
       continue;
     }
 
