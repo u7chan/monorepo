@@ -9,6 +9,8 @@ export const CLAUDE_BINARY = "claude";
 export const CLAUDE_CLI_TIMEOUT_MS = 15_000;
 /** 推論を伴う送信の上限。`/usage` の 15 秒では、混雑時の 1 文字の応答も待てないことがある。 */
 export const CLAUDE_PROMPT_TIMEOUT_MS = 60_000;
+/** リセット枠の取得に載せる CLI の版を読む。出力は `2.1.332 (Claude Code)` の形。 */
+export const CLAUDE_VERSION_ARGS: readonly string[] = ["--version"];
 
 export type ClaudeCli = {
   /** 引数を渡して標準出力を返す。終了コードが 0 以外・期限超過・起動失敗は `ClaudeCliError`。 */
@@ -50,6 +52,22 @@ export type SpawnClaude = (
 
 export function claudeConfigDir(credentialDir: string): string {
   return join(credentialDir, CLAUDE_CONFIG_DIR_NAME);
+}
+
+/** `2.1.332 (Claude Code)` のような出力から版だけを読む。読めなければ null。 */
+export function parseClaudeVersion(stdout: string): string | null {
+  const match = stdout.trim().match(/^(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?:\s|$)/);
+
+  return match?.[1] ?? null;
+}
+
+/** 版は UA の飾りにしか使わないので、起こせない・読めないは失敗にせず null へ丸める。 */
+export async function readClaudeVersion(cli: ClaudeCli): Promise<string | null> {
+  try {
+    return parseClaudeVersion(await cli.run(CLAUDE_VERSION_ARGS));
+  } catch {
+    return null;
+  }
 }
 
 /**

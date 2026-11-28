@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClaudeCli } from "../src/server/claude/cli";
+import { ClaudeCliError, type ClaudeCli } from "../src/server/claude/cli";
 import { createClaudeUsageService } from "../src/server/claude/service";
 import { loadClaudeResetCredits, openDatabase, saveClaudeResetCredits, type DatabaseHandle } from "../src/server/db";
 
@@ -26,7 +26,7 @@ function writeCredential(dataDir: string, token: string, expiresAt: number): voi
   );
 }
 
-function harness(options: { token?: string; expiresAt?: number } = {}) {
+function harness(options: { token?: string; expiresAt?: number; cliVersion?: string | null } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-claude-reset-service-"));
   const db = openDatabase(dataDir);
   const calls: string[][] = [];
@@ -38,9 +38,18 @@ function harness(options: { token?: string; expiresAt?: number } = {}) {
 
   writeCredential(dataDir, options.token ?? "token-sentinel", options.expiresAt ?? NOW + 60 * MINUTE);
 
+  const cliVersion = options.cliVersion === undefined ? "2.1.332 (Claude Code)" : options.cliVersion;
   const cli: ClaudeCli = {
     run: async (args) => {
       calls.push([...args]);
+
+      if (args[0] === "--version") {
+        if (cliVersion === null) {
+          throw new ClaudeCliError("exit", "Claude の CLI が失敗しました");
+        }
+
+        return cliVersion;
+      }
 
       if (args[0] === "auth") {
         return JSON.stringify(AUTH_OK);
@@ -107,14 +116,14 @@ function stubFetch(respond: (headers: Record<string, string>) => Response): stri
 }
 
 describe("resetCredits", () => {
-  test("有効な token があれば CLI を起こさず、値だけを保存する", async () => {
+  test("有効な token があれば /usage を起こさず、値だけを保存する", async () => {
     const h = harness();
     const endsAt = new Date(NOW + 10 * MINUTE).toISOString();
 
     stubFetch(() => new Response(cedar([{ resets_left: 2, ends_at: endsAt }]), { status: 200 }));
 
     await expect(h.service.resetCredits()).resolves.toEqual({ state: "refreshed" });
-    expect(h.calls).toEqual([]);
+    expect(h.calls).toEqual([["--version"]]);
     expect(loadClaudeResetCredits(h.db)).toEqual({
       credits: { available: 2, expiries: [Date.parse(endsAt)] },
       capturedAt: NOW,
@@ -129,7 +138,7 @@ describe("resetCredits", () => {
 
     await expect(h.service.resetCredits()).resolves.toEqual({ state: "refreshed" });
     expect(tokens).toEqual(["Bearer token-refreshed"]);
-    expect(h.calls.map((args) => args[0])).toEqual(["auth", "-p"]);
+    expect(h.calls.map((args) => args[0])).toEqual(["--version", "auth", "-p"]);
   });
 
   test("401 は CLI で更新して 1 回だけやり直し、それでも 401 なら失敗にする", async () => {
@@ -140,7 +149,7 @@ describe("resetCredits", () => {
 
     await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "reauth_required" });
     expect(tokens).toEqual(["Bearer token-sentinel", "Bearer token-refreshed"]);
-    expect(h.calls.map((args) => args[0])).toEqual(["auth", "-p"]);
+    expect(h.calls.map((args) => args[0])).toEqual(["--version", "auth", "-p"]);
 
     // 失敗しても前回の値は消さない。
     expect(loadClaudeResetCredits(h.db)).toEqual({
@@ -155,13 +164,13 @@ describe("resetCredits", () => {
 
     await expect(h.service.refresh("manual")).resolves.toEqual({ state: "refreshed" });
 
-    const callsAfterRefresh = h.calls.length;
+    const callsAfterRefresh = h.calls.filter((args) => args[0] !== "--version").length;
 
     // 直後の操作で token が失効していても、cooldown 中は CLI を起こさない。
     writeCredential(h.dataDir, "token-expired", NOW - MINUTE);
 
     await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "reauth_required" });
-    expect(h.calls.length).toBe(callsAfterRefresh);
+    expect(h.calls.filter((args) => args[0] !== "--version")).toHaveLength(callsAfterRefresh);
   });
 
   test("上流エラーと形の変化は、0 件ではなく固定の失敗として残す", async () => {
@@ -177,6 +186,57 @@ describe("resetCredits", () => {
 
     expect(stored?.credits).toBeNull();
     expect(stored?.error?.code).toBe("schema");
+  });
+
+  test("リセット枠は CLI と同じ形の UA に Portal の UA を併記して読む", async () => {
+    const h = harness();
+    const endsAt = new Date(NOW + 10 * MINUTE).toISOString();
+    const seen: (string | null)[] = [];
+
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(((init?.headers ?? {}) as Record<string, string>)["user-agent"] ?? null);
+
+      return new Response(cedar([{ resets_left: 1, ends_at: endsAt }]), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(h.service.resetCredits()).resolves.toEqual({ state: "refreshed" });
+    expect(seen).toEqual(["claude-cli/2.1.332 (external, cli) usage-portal/test"]);
+    expect(h.calls).toEqual([["--version"]]);
+  });
+
+  test("CLI の版を読めなければ Portal の UA で読み、次の要求で読み直す", async () => {
+    const h = harness({ cliVersion: null });
+    const seen: (string | null)[] = [];
+
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(((init?.headers ?? {}) as Record<string, string>)["user-agent"] ?? null);
+
+      return new Response("{}", { status: 500 });
+    }) as unknown as typeof fetch;
+
+    await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "upstream" });
+    await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "upstream" });
+    expect(seen).toEqual(["usage-portal/test", "usage-portal/test"]);
+    expect(h.calls).toEqual([["--version"], ["--version"]]);
+  });
+
+  test("surface の拒否は 0 件にせず、前回の値を残して失敗にする", async () => {
+    const h = harness();
+
+    saveClaudeResetCredits(h.db, { capturedAt: NOW - MINUTE, credits: { available: 1, expiries: [NOW + 1000] } });
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ cedar_ember: { eligible: false, ineligible_reason: "surface", grants: [] } }), {
+          status: 200,
+        }),
+    );
+
+    await expect(h.service.resetCredits()).resolves.toEqual({ state: "failed", error: "schema" });
+    expect(loadClaudeResetCredits(h.db)).toEqual({
+      credits: { available: 1, expiries: [NOW + 1000] },
+      capturedAt: NOW - MINUTE,
+      error: { code: "schema", message: "Claude のリセット枠を解釈できませんでした", at: NOW },
+    });
   });
 
   test("ログアウトでリセット枠も消す", async () => {

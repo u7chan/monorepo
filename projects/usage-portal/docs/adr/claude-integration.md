@@ -58,11 +58,16 @@ Codex と OpenCode Go はバックグラウンドで取得するが、Claude は
   通常の `/usage` と同時に走らせないよう、Claude の取得と同じ single-flight に直列化する。
 - 認証は `Authorization: Bearer <access>` と `anthropic-beta: oauth-2025-04-20`。`?cedar_ember=1` を付けないと
   `cedar_ember` は `null` で返る。
+- `user-agent` は `claude-cli/<CLI の版> (external, cli) usage-portal/<Portal の版>` にする。上流は UA の surface と
+  CLI の版で grant の出し分けを決めるため、Portal の UA だけでは `eligible: false`（`ineligible_reason: "surface"`）
+  になる。版は `claude --version` を 1 度だけ実行して読み、読めなければ Portal の UA だけで送って次の要求でやり直す。
 - `grants[]` のうち `resets_left > 0` かつ `ends_at > now` を採用する。回数は `resets_left` の合計、期限は
   `ends_at` を昇順で持つ。`weekly_resets_at` は週次窓のリセットなので混ぜない。期限の無い grant（`ends_at: null`）は
   今の表示モデルで表せないため対象外にする。
-- 0 件とするのは `eligible: false` のときと、`grants[]` が空・未設定のときだけ。`cedar_ember` が null、
-  行や `ends_at` の形が読めない応答（キーの欠落を含む）は、0 件ではなく取得失敗として扱う
+- 0 件とするのは `eligible: false` のときと、`grants[]` が空・未設定のときだけ。ただし `eligible: false` でも
+  `ineligible_reason` が `surface` / `cli_version` のときは「このクライアントには返さない」という拒否であり、
+  grant が 0 件なのではないため取得失敗にする（UA の漏れで前回の値が 0 件に化けた）。`cedar_ember` が null、
+  行や `ends_at` の形が読めない応答（キーの欠落を含む）も、0 件ではなく取得失敗として扱う
   （前回の値を 0 件で上書きしない）。`label` などの自由文は保存・表示しない。
 - `cedar_ember` の形が変わったら adapter を直す。
 - 結果は `/usage` の snapshot とは別の 1 行（`claude_reset_credits`）に保存し、通常の更新で消えないようにする。

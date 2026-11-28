@@ -82,7 +82,11 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
   }
 
   if (!status.eligible) {
-    return { available: 0, expiries: [] };
+    // surface と cli_version は「このクライアントには返さない」という拒否で、grant が 0 件なのとは違う。
+    // 0 件として保存すると、前回の値が消えるうえに原因も見えなくなる。
+    const reason = status.ineligible_reason;
+
+    return reason === "surface" || reason === "cli_version" ? null : { available: 0, expiries: [] };
   }
 
   const grants = status.grants;
@@ -142,6 +146,14 @@ export function parseClaudeResetCredits(body: unknown, now: number): ClaudeReset
   }
 
   return { available, expiries: expiries.sort((a, b) => a - b) };
+}
+
+/**
+ * 上流は UA の surface と CLI の版で grant の出し分けを決めるため、CLI と同じ形にして Portal を併記する。
+ * 版を読めないときは Portal の UA だけを送る。
+ */
+export function claudeResetCreditsUserAgent(cliVersion: string | null, portalUserAgent: string): string {
+  return cliVersion === null ? portalUserAgent : `claude-cli/${cliVersion} (external, cli) ${portalUserAgent}`;
 }
 
 export async function requestClaudeResetCredits(options: {

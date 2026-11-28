@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CLAUDE_RESET_CREDITS_URL,
+  claudeResetCreditsUserAgent,
   parseClaudeResetCredits,
   readClaudeAccessToken,
   requestClaudeResetCredits,
@@ -105,6 +106,28 @@ describe("parseClaudeResetCredits", () => {
     expect(parseClaudeResetCredits({ cedar_ember: { grants: [] } }, NOW)).toBeNull();
     expect(parseClaudeResetCredits({ cedar_ember: { eligible: true, grants: {} } }, NOW)).toBeNull();
     expect(parseClaudeResetCredits(null, NOW)).toBeNull();
+  });
+
+  test("surface と cli_version の拒否は 0 件ではなく取得失敗にする", () => {
+    expect(parseClaudeResetCredits({ cedar_ember: { eligible: false, ineligible_reason: "surface" } }, NOW)).toBeNull();
+    expect(
+      parseClaudeResetCredits({ cedar_ember: { eligible: false, ineligible_reason: "cli_version" } }, NOW),
+    ).toBeNull();
+    expect(
+      parseClaudeResetCredits({ cedar_ember: { eligible: false, ineligible_reason: "no_grant", grants: [] } }, NOW),
+    ).toEqual({ available: 0, expiries: [] });
+  });
+});
+
+describe("claudeResetCreditsUserAgent", () => {
+  test("CLI の版があれば CLI と同じ形にして Portal の UA を併記する", () => {
+    expect(claudeResetCreditsUserAgent("2.1.332", "usage-portal/0.1.0")).toBe(
+      "claude-cli/2.1.332 (external, cli) usage-portal/0.1.0",
+    );
+  });
+
+  test("版がなければ Portal の UA だけを返す", () => {
+    expect(claudeResetCreditsUserAgent(null, "usage-portal/0.1.0")).toBe("usage-portal/0.1.0");
   });
 });
 

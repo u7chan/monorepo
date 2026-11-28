@@ -11,8 +11,8 @@ import {
 import { CLAUDE_PROVIDER } from "../providers";
 import { CLAUDE_REFRESH_INTERVAL_MS, fetchClaudeUsage } from "../providers/claude";
 import { ProviderError, type ProviderErrorCode } from "../providers/types";
-import type { ClaudeCli } from "./cli";
-import { requestClaudeResetCredits, type ClaudeResetCreditsRead } from "./reset-credits";
+import { readClaudeVersion, type ClaudeCli } from "./cli";
+import { claudeResetCreditsUserAgent, requestClaudeResetCredits, type ClaudeResetCreditsRead } from "./reset-credits";
 
 /** 手動更新を続けて押したときに、CLI の起動を重ねないための間隔。 */
 export const CLAUDE_MANUAL_COOLDOWN_MS = 60 * 1000;
@@ -69,6 +69,23 @@ export function createClaudeUsageService(options: {
   let generation = 0;
   let loggingOut = false;
   let pendingLogout: Promise<boolean> | null = null;
+  // CLI の版はプロセス中に変わらないので 1 度だけ読む。読めなかったときは次の要求でやり直す。
+  let resetCreditsUserAgent: Promise<string> | null = null;
+
+  function resolveResetCreditsUserAgent(): Promise<string> {
+    resetCreditsUserAgent ??= readClaudeVersion(options.cli).then((version) => {
+      if (version !== null) {
+        return claudeResetCreditsUserAgent(version, options.userAgent);
+      }
+
+      // 読めないまま固定すると、UA を理由に拒否され続けて取り直せなくなる。
+      resetCreditsUserAgent = null;
+
+      return options.userAgent;
+    });
+
+    return resetCreditsUserAgent;
+  }
 
   async function attempt(startedAtGeneration: number): Promise<ClaudeRefreshResult> {
     lastRunAt = options.now();
@@ -188,9 +205,11 @@ export function createClaudeUsageService(options: {
       await running.catch(() => undefined);
     }
 
+    const userAgent = await resolveResetCreditsUserAgent();
+
     let read = await requestClaudeResetCredits({
       credentialDir: options.credentialDir,
-      userAgent: options.userAgent,
+      userAgent,
       now: options.now,
     });
 
@@ -209,7 +228,7 @@ export function createClaudeUsageService(options: {
       // cooldown 中でも直近の更新で token が新しくなっていることがある。読み直して判断する。
       read = await requestClaudeResetCredits({
         credentialDir: options.credentialDir,
-        userAgent: options.userAgent,
+        userAgent,
         now: options.now,
       });
     }
