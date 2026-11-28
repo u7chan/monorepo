@@ -187,10 +187,8 @@ export function usePopoverShell(place: PopoverPlace, margin: number, options: Po
     triggerRef.current?.focus();
   }, []);
 
-  /**
-   * 開いている間は commit のたびに置き直す。window の resize は React の再レンダーより先に走って
-   * 動く前の rect を読むため、commit 後に読む。
-   */
+  // 開いている間は commit のたびに置き直す。window の resize は React の再レンダーより先に走って
+  // 動く前の rect を読むため、commit 後に読む
   useLayoutEffect(() => {
     if (isOpen) placeNow();
   });

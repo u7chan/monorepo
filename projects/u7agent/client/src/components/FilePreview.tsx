@@ -110,10 +110,8 @@ export function FilePreview({
   // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
   const fullscreenPhase = useExitPhase(fullscreen, fullscreenDialogRef);
   const fullscreenVisible = fullscreen || fullscreenPhase === "closing";
-  /**
-   * 開閉は native の showModal / close だけで行う (portal / 条件分岐で移すと React が要素を作り直し、
-   * iframe の状態が消える)。close を layout effect に置くのは退場アニメと同じ描画で閉じるため。
-   */
+  // 開閉は native の showModal / close だけで行う (portal / 条件分岐で移すと React が要素を作り直し、
+  // iframe の状態が消える)。close を layout effect に置くのは退場アニメと同じ描画で閉じるため
   useLayoutEffect(() => {
     const dialog = fullscreenDialogRef.current;
     if (dialog === null) return;

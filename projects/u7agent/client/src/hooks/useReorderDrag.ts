@@ -299,10 +299,8 @@ export function useReorderDrag({
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [draggingId, finishDrag]);
 
-  /**
-   * レイアウトの切替では一覧の容器が作り替わるが、AgentList は再利用され unmount では拾えない。
-   * ドラッグ中だけ resize を購読し、切替を検知したら finishDrag へ載せる (購読は draggingId で外す)。
-   */
+  // レイアウトの切替では一覧の容器が作り替わるが、AgentList は再利用され unmount では拾えない。
+  // ドラッグ中だけ resize を購読し、切替を検知したら finishDrag へ載せる (購読は draggingId で外す)
   useEffect(() => {
     if (draggingId === null) return;
     const onResize = () => {

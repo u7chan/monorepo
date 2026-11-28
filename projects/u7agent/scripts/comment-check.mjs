@@ -274,6 +274,32 @@ function commentsOf(text) {
 }
 
 /**
+ * 関数の中・属性の位置・式の位置に置いた `/**` を行番号で返す。`/**` は宣言の JSDoc にだけ使い、
+ * それ以外は `//` にする。直後の行が文の始まり (だけ) かどうかで判定する。
+ */
+function inlineDocComments(text, isTsx = false) {
+  const lines = text.split("\n");
+  const asText = new Set(isTsx ? jsxTextComments(text) : []);
+  const found = [];
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const indent = line.length - line.trimStart().length;
+    if (indent < 2 || !line.trimStart().startsWith("/**")) continue;
+    if (asText.has(index + 1)) continue;
+    let end = index;
+    while (end < lines.length && !lines[end].includes("*/")) end += 1;
+    let next = end + 1;
+    while (next < lines.length && lines[next].trim() === "") next += 1;
+    if (next >= lines.length) continue;
+    const after = lines[next].trimStart();
+    const expression = /^(<|return\b|use[A-Z]\w*\(|\(\{|\{$|\()/.test(after);
+    const attribute = /^[A-Za-z_$][\w$]*=\{/.test(after);
+    if (expression || attribute) found.push(index + 1);
+  }
+  return found;
+}
+
+/**
  * JSX の子要素に置いた `/**` はコメントではなく文字として描画される (実際に踏んだ不具合)。
  * 直前の行が `>` `}` `)` で終わり、次の行が子要素 (`<` / `{` / `(`) で始まる `/**` を行番号で返す。
  * 属性の間 (`onClose={` など) と `=>` の後ろはコメントなので除く。
@@ -284,7 +310,7 @@ function jsxTextComments(text) {
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
     const indent = line.length - line.trimStart().length;
-    if (indent < 4 || !line.trimStart().startsWith("/**")) continue;
+    if (indent < 2 || !line.trimStart().startsWith("/**")) continue;
     let previous = index - 1;
     while (previous >= 0 && lines[previous].trim() === "") previous -= 1;
     let end = index;
@@ -328,6 +354,9 @@ function main() {
           errors.push(`${shown}:${line}: JSX の子の /** は文字として描画される。{/* */} にする`);
         }
       }
+      for (const line of inlineDocComments(text, file.endsWith(".tsx"))) {
+        errors.push(`${shown}:${line}: インラインの /** は // にする (宣言の JSDoc だけ /** */)`);
+      }
       for (const comment of commentsOf(text)) {
         if (isOverLong(comment)) found.push({ file: shown, ...comment });
       }
@@ -364,6 +393,6 @@ function main() {
   if (found.length < LONG_COMMENT_BUDGET) console.error(`comment check: ${tighten}`);
 }
 
-export { commentsOf, isOverLong, jsxTextComments };
+export { commentsOf, inlineDocComments, isOverLong, jsxTextComments };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();

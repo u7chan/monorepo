@@ -5,10 +5,8 @@ import type { ThemeId } from "../../theme/themes";
  * 入口になる (色をここへ書くと registry と二重管理)。中身は装飾なので読み上げはカード側に任せる。
  */
 export function ThemePreview({ themeId }: { themeId: ThemeId }) {
-  /**
-   * text-ink は継承色をプレビュー自身のテーマへ向け直すため。素の文字は画面側テーマの body 色を継承し、
-   * 自分の背景に対してコントラストが崩れる (組み合わせ次第で 2:1 を切る)。
-   */
+  // text-ink は継承色をプレビュー自身のテーマへ向け直すため。素の文字は画面側テーマの body 色を継承し、
+  // 自分の背景に対してコントラストが崩れる (組み合わせ次第で 2:1 を切る)
   return (
     <div
       data-theme={themeId}
