@@ -38,7 +38,7 @@ type Present = Extract<ProcessReading, { state: "present" }>;
 
 interface RecordedIdentity {
   pid: number;
-  startedAtMs?: number;
+  startedAtMs: number;
   exe: string;
   argv: string[];
 }
@@ -311,9 +311,71 @@ test("起動元のロックの状態を確かめられなければ、止めず�
     await f.makeHome(HOME);
     await f.writeRecord(RECORD, record(DEAD_OWNER, HOME, identity(5001, reading)));
 
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("spawn を始めた記録は、子の識別情報が無くても「子なし」と見なさない", async () => {
+  const f = await createFixture();
+  try {
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, { version: 1, owner: DEAD_OWNER, home: HOME, spawnPending: true, child: null });
+
     assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 1, removedRecords: 0, removedHomes: 0 });
     assert.deepEqual(f.procs.signals, []);
     assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("起動時刻が未確定の記録は送らず、記録と専用 HOME を残す", async () => {
+  const f = await createFixture();
+  try {
+    const reading = f.genuine(5001, HOME);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(HOME);
+    const { pid, exe, argv } = identity(5001, reading);
+    await f.writeRecord(RECORD, {
+      version: 1,
+      owner: DEAD_OWNER,
+      home: HOME,
+      child: null,
+      pendingChild: { pid, exe, argv },
+    });
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 1, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, [], "起動時刻を確かめられない子へ送らない");
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("ロックが生きているあいだは、壊れた記録も HOME も消さない", async () => {
+  const f = await createFixture({ lockHeld: async () => "held" });
+  try {
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, { version: 2 });
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("ロックが生きているあいだは、記録の無い HOME も消さない", async () => {
+  const f = await createFixture({ lockHeld: async () => "held" });
+  try {
+    await f.makeHome(HOME);
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(await readdir(f.stateDir), [HOME]);
   } finally {
     await f.cleanup();
   }

@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -187,6 +187,32 @@ test("取得中に書き込み root の実体が配置先を含むよう変わ�
     );
     assert.equal(verified, 0, "古い root の一覧で実行しない");
     assert.deepEqual(await readdir(dest), [], "一時ファイルも残さない");
+  });
+});
+
+test("既存の cloudflared が書き込み先を指す symlink なら、ハッシュが合っても実行しない", async () => {
+  await withDest(async (dest, root) => {
+    const writable = join(root, "writable");
+    await mkdir(writable);
+    await writeFile(join(writable, "cloudflared"), BINARY, { mode: 0o755 });
+    await mkdir(dest);
+    await symlink(join(writable, "cloudflared"), join(dest, "cloudflared"));
+
+    let verifiedWith = "";
+    const fetch = stubFetch(BINARY);
+    const result = await installer.installCloudflared({
+      ...base(dest),
+      fetchImpl: fetch.fetchImpl,
+      writeRoots: [writable],
+      verifyVersion: async (path: string) => {
+        verifiedWith = path;
+        return `cloudflared version ${VERSION}`;
+      },
+    });
+    assert.equal(result.installed, true, "symlink は配置済みと見なさない");
+    assert.match(verifiedWith, /cloudflared\.partial-/, "実行するのは一時ファイルだけ");
+    assert.equal((await lstat(join(dest, "cloudflared"))).isFile(), true, "symlink を通常ファイルへ置き換える");
+    assert.equal(await readFile(join(writable, "cloudflared"), "utf8"), BINARY, "指し先は書き換えない");
   });
 });
 

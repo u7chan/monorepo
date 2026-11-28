@@ -250,6 +250,8 @@ export interface CloudflaredLauncherOptions extends CloudflaredEnvironment {
   mkdir?: typeof mkdir;
   /** テスト用の差し替え。既定は flock の取得 */
   acquireLock?: typeof acquireFileLock;
+  /** テスト用の差し替え。既定は記録の書き込み */
+  writeRecordFile?: (path: string, text: string) => Promise<void>;
   listenerOwner?: (pid: number, port: number) => Promise<ListenerOwner>;
   deadlineMs?: number;
   stopGraceMs?: number;
@@ -499,17 +501,26 @@ const recordSchema = z.object({
   version: z.literal(1),
   owner: z.object({ pid: z.number().int().positive(), startedAtMs: z.number().int().nonnegative() }),
   home: z.string(),
-  /** 子を起こし始めたが、識別情報をまだ確定していない。child が null でも子が居る可能性がある */
+  /** 子を起こし始めたが、識別情報をまだ確定していない。child も pendingChild も無いことがある */
   spawnPending: z.boolean().optional(),
+  /** 確定した子。起動時刻まで揃ったものだけを入れ、照合では必ず比べる */
   child: z
     .object({
       pid: z.number().int().positive(),
-      /** 起動の直後に /proc を読めなかった記録は無い。照合では起動時刻を比べない */
-      startedAtMs: z.number().int().nonnegative().optional(),
+      startedAtMs: z.number().int().nonnegative(),
       exe: z.string().min(1),
       argv: z.array(z.string()).max(32),
     })
     .nullable(),
+  /** spawn したが、起動時刻を確定できていない子。送信の根拠にはせず、記録を残すためだけに持つ */
+  pendingChild: z
+    .object({
+      pid: z.number().int().positive(),
+      exe: z.string().min(1),
+      argv: z.array(z.string()).max(32),
+    })
+    .nullable()
+    .optional(),
 });
 type LaunchRecord = z.infer<typeof recordSchema>;
 
@@ -535,9 +546,13 @@ async function readRecord(path: string, readText: (path: string) => Promise<stri
   }
 }
 
-async function writeRecord(path: string, record: LaunchRecord): Promise<void> {
+async function writeRecord(
+  path: string,
+  record: LaunchRecord,
+  writeText: (path: string, text: string) => Promise<void>,
+): Promise<void> {
   const partial = `${path}.tmp`;
-  await writeFile(partial, JSON.stringify(record), { mode: 0o600 });
+  await writeText(partial, JSON.stringify(record));
   await rename(partial, path);
 }
 
@@ -552,6 +567,7 @@ function hasFixedTunnelArgs(argv: readonly string[]): boolean {
 type ReadProcess = (pid: number) => Promise<ProcessReading>;
 type OpenProcessRef = (pid: number) => Promise<ProcessRef | undefined>;
 type RecordedChild = NonNullable<LaunchRecord["child"]>;
+type PendingChild = NonNullable<LaunchRecord["pendingChild"]>;
 
 async function ownerIsAlive(owner: LaunchRecord["owner"], readProcess: ReadProcess): Promise<boolean> {
   const reading = await readProcess(owner.pid);
@@ -578,7 +594,7 @@ async function checkRecordedChild(
   if (reading.state === "unknown") return "unknown";
   if (reading.state === "gone") return "changed";
   const matches =
-    (child.startedAtMs === undefined || reading.startedAtMs === child.startedAtMs) &&
+    reading.startedAtMs === child.startedAtMs &&
     reading.exe === child.exe &&
     child.exe === expected.binary &&
     reading.cwd === expected.cwd &&
@@ -681,6 +697,17 @@ async function sweepStateDir(ctx: SweepContext): Promise<CloudflaredSweepReport>
       keep.add(home);
       continue;
     }
+    // 中身が読めても、起動元のロックが生きている・確かめられないうちは、記録も HOME も触らない。
+    // HOME が無ければロックも無いので、残っている記録だけを消す
+    const homeExists = await stat(join(stateDir, home)).then(
+      () => true,
+      () => false,
+    );
+    const held = homeExists ? await ctx.lockHeld(join(stateDir, home, "launch.lock")) : "free";
+    if (held !== "free") {
+      keep.add(home);
+      continue;
+    }
     // 中身の home は信じない。他の場所を cwd に持つ子を指せてしまう
     const record = read.kind === "ok" && read.record.home === home ? read.record : undefined;
     if (record && (await ownerIsAlive(record.owner, readProcess))) keep.add(home);
@@ -708,8 +735,8 @@ async function sweepStateDir(ctx: SweepContext): Promise<CloudflaredSweepReport>
       } else if (first === "parented") {
         settled = false;
       }
-    } else if (record?.spawnPending) {
-      // spawn を始めたが、子の識別情報を確定できないまま書いた記録。子が居るかもしれないので、何も消さない
+    } else if (record?.spawnPending || record?.pendingChild) {
+      // 子の識別情報を確定できない記録。子が居るかもしれないので、何も消さない
       settled = false;
       report.failed += 1;
     }
@@ -724,6 +751,8 @@ async function sweepStateDir(ctx: SweepContext): Promise<CloudflaredSweepReport>
   // 記録を消したあとの専用 HOME と、SIGKILL で残った HOME。会話ストアは永続ボリュームのことがあり、放置すると溜まる
   for (const name of homes) {
     if (keep.has(name)) continue;
+    // 記録が壊れていても、その HOME のロックが生きている・確かめられないなら消さない
+    if ((await ctx.lockHeld(join(stateDir, name, "launch.lock"))) !== "free") continue;
     await rm(join(stateDir, name), { recursive: true, force: true });
     report.removedHomes += 1;
   }
@@ -765,6 +794,8 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
   const readDir = options.readStateDir ?? readdir;
   const makeDir = options.mkdir ?? mkdir;
   const takeLock = options.acquireLock ?? acquireFileLock;
+  const writeRecordText =
+    options.writeRecordFile ?? ((path: string, text: string) => writeFile(path, text, { mode: 0o600 }));
   const listenerOwner = options.listenerOwner ?? loopbackListenerOwner;
   const deadlineMs = options.deadlineMs ?? CLOUDFLARED_READY_DEADLINE_MS;
   const stopGraceMs = options.stopGraceMs ?? STOP_GRACE_MS;
@@ -834,6 +865,7 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
     let homePath: string | undefined;
     let recordPath: string | undefined;
     let launchLock: FileLock | undefined;
+    let terminating: Promise<void> | undefined;
 
     const tail = (lines: readonly string[]): string => maskTunnelHostnames(lines.slice(-TAIL_LINES).join("\n"));
     const failure = (kind: CloudflaredFailureKind): CloudflaredLaunchError =>
@@ -916,7 +948,11 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
       const owner = { pid: process.pid, startedAtMs: ownerReading.startedAtMs };
       // 記録は専用 HOME より先に書く。記録の無い HOME が生きている起動のものだと取り違えないため
       recordPath = join(stateDir, `pid-${options.instancePort}-${id}.json`);
-      await writeRecord(recordPath, { version: 1, owner, home: homeName, spawnPending: true, child: null });
+      await writeRecord(
+        recordPath,
+        { version: 1, owner, home: homeName, spawnPending: true, child: null },
+        writeRecordText,
+      );
       throwIfStopped();
       homePath = join(stateDir, homeName);
       liveRuns.add(live);
@@ -954,16 +990,21 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
       });
 
       if (!recordPath || spawned.pid === undefined) return;
-      const expectedChild = { pid: spawned.pid, exe: binary, argv: [binary, ...args] };
-      // spawn の直後に書く。ここで BFF が落ちても、次の掃除が pid と固定の引数で回収できる
-      await writeRecord(recordPath, { version: 1, owner, home: homeName, child: expectedChild });
+      const pendingChild: PendingChild = { pid: spawned.pid, exe: binary, argv: [binary, ...args] };
+      // spawn の直後に書く。ここで BFF が落ちても、子が居たことは記録に残る
+      await writeRecord(recordPath, { version: 1, owner, home: homeName, child: null, pendingChild }, writeRecordText);
       // 停止・期限では打ち切らず、記録の確定だけは独立に待つ (未確定の子を「子なし」と混ぜない)
       const reading = readProcess(spawned.pid).catch((): ProcessReading => ({ state: "unknown" }));
       const childReading = (await settledWithin(reading, IDENTITY_WAIT_MS))
         ? await reading
         : { state: "unknown" as const };
-      if (childReading.state === "present") {
-        await writeRecord(recordPath, {
+      if (childReading.state !== "present") {
+        // 起動時刻まで確定できない子は成功にも送信にも使わない。記録は pendingChild のまま残す
+        throw new CloudflaredLaunchError("unavailable", "", "proc_unavailable");
+      }
+      await writeRecord(
+        recordPath,
+        {
           version: 1,
           owner,
           home: homeName,
@@ -973,11 +1014,9 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
             exe: childReading.exe,
             argv: childReading.argv,
           },
-        });
-      } else if (childReading.state === "unknown") {
-        // 識別情報を確定できないまま ready にしない。止められなかった場合は、pid と引数の記録から次の掃除が試す
-        throw new CloudflaredLaunchError("unavailable", "", "proc_unavailable");
-      }
+        },
+        writeRecordText,
+      );
     }
 
     async function exitFailure(): Promise<CloudflaredLaunchError> {
@@ -1020,13 +1059,16 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
       }
     }
 
-    async function terminateChild(): Promise<void> {
-      if (!child || gone) return;
-      selfKilled = true;
-      child.kill("SIGTERM");
-      if (await settledWithin(childGone.promise, stopGraceMs)) return;
-      child.kill("SIGKILL");
-      await settledWithin(childGone.promise, killWaitMs);
+    function terminateChild(): Promise<void> {
+      // 記録の書き込み待ちで停止が遅れないよう、停止・期限の通知からも並行して呼ぶ
+      return (terminating ??= (async () => {
+        if (!child || gone) return;
+        selfKilled = true;
+        child.kill("SIGTERM");
+        if (await settledWithin(childGone.promise, stopGraceMs)) return;
+        child.kill("SIGKILL");
+        await settledWithin(childGone.promise, killWaitMs);
+      })());
     }
 
     async function removeResources(): Promise<void> {
@@ -1035,13 +1077,17 @@ export function createCloudflaredLauncher(options: CloudflaredLauncherOptions): 
         void childGone.promise.then(removeResources);
         return;
       }
-      launchLock?.release();
+      await launchLock?.release();
       launchLock = undefined;
       for (const path of [homePath, recordPath, recordPath && `${recordPath}.tmp`]) {
         if (path) await rm(path, { recursive: true, force: true }).catch(() => {});
       }
       liveRuns.delete(live);
     }
+
+    // 記録の rename が詰まっていても、停止・期限では子へ先に TERM を送る
+    if (stopOrDeadline.aborted) void terminateChild();
+    else stopOrDeadline.addEventListener("abort", () => void terminateChild(), { once: true });
 
     const done = (async () => {
       try {

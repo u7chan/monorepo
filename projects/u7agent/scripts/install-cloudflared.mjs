@@ -42,9 +42,13 @@ function runVersion(path) {
   return result.status === 0 ? `${result.stdout}${result.stderr}`.trim() : "";
 }
 
-async function alreadyInstalled(target, expected, verifyVersion) {
+async function alreadyInstalled(target, expected, verifyVersion, assertTrusted) {
   try {
-    return sha256Of(await readFile(target)) === expected && (await verifyVersion(target)).includes(CLOUDFLARED_VERSION);
+    // 既存の実体も、ハッシュを読む前と実行の直前に見る。書き込み先を指す symlink を実行しない
+    assertTrusted(target);
+    if (sha256Of(await readFile(target)) !== expected) return false;
+    assertTrusted(target);
+    return (await verifyVersion(target)).includes(CLOUDFLARED_VERSION);
   } catch {
     return false;
   }
@@ -157,7 +161,7 @@ export async function installCloudflared({
   return withInstallLock(dest, { waitMs: lockWaitMs, pollMs: lockPollMs }, async () => {
     // ロックを取るまでの間に差し替えられていないか、実在する形でもう一度見る
     assertTrusted();
-    if (await alreadyInstalled(target, expected, verifyVersion)) {
+    if (await alreadyInstalled(target, expected, verifyVersion, assertTrusted)) {
       log(`cloudflared ${CLOUDFLARED_VERSION} は配置済みです: ${target}`);
       return { path: target, installed: false };
     }

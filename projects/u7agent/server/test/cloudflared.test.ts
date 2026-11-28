@@ -569,6 +569,34 @@ test("起動元のロックを取れないときは、子を起こさず unavail
   }
 });
 
+test("子を gone と観測したら、loopback が 200 でも ready にしない", async () => {
+  const h = await createHarness({
+    readProcess: async (pid) =>
+      pid === process.pid
+        ? {
+            state: "present",
+            startedAtMs: 1,
+            exe: process.execPath,
+            argv: [process.execPath],
+            cwd: process.cwd(),
+          }
+        : { state: "gone" },
+  });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    const error = await h.launch().ready.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    assert.ok(error instanceof CloudflaredLaunchError);
+    assert.equal(error.kind, "unavailable");
+    assert.equal(error.unavailableReason, "proc_unavailable");
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("子の識別情報を観測できないときは ready にせず、記録に子の pid を残す", async () => {
   const h = await createHarness({
     readProcess: async (pid) =>
@@ -598,12 +626,46 @@ test("子の識別情報を観測できないときは ready にせず、記録�
     const recordName = names.find((name) => name.endsWith(".json"));
     assert.ok(recordName, "記録を残す");
     const record = JSON.parse(await readFile(join(h.stateDir, recordName), "utf8"));
-    assert.equal(record.child.pid, h.calls[0]?.child.pid, "子なしではなく、pid を記録する");
-    assert.equal(record.spawnPending, undefined);
+    assert.equal(record.child, null);
+    assert.equal(record.pendingChild.pid, h.calls[0]?.child.pid, "子なしではなく、pid を記録する");
 
     await h.calls[0]?.child.exit(0);
     await waitFor(async () => (await readdir(h.stateDir)).length === 0, "子が終わったあとの片付け");
   } finally {
+    await h.dispose();
+  }
+});
+
+test("記録の書き込みを待っている間も、stop() は子へ TERM を送る", async () => {
+  let writes = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const h = await createHarness({
+    stopGraceMs: 150,
+    writeRecordFile: async (path, text) => {
+      writes += 1;
+      if (writes === 2) await gate;
+      await writeFile(path, text, { mode: 0o600 });
+    },
+  });
+  try {
+    const handle = h.launch();
+    await waitFor(() => h.calls.length === 1, "spawn");
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+
+    const stopping = handle.stop();
+    await waitFor(() => child.signals.includes("SIGTERM"), "記録の書き込みと並行して止める");
+    release();
+    await stopping;
+    await assert.rejects(
+      handle.ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "aborted",
+    );
+  } finally {
+    release();
     await h.dispose();
   }
 });
