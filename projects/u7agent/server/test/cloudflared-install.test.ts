@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -99,6 +99,42 @@ test("取得の失敗・linux 以外・未対応のアーキテクチャ・配�
     await assert.rejects(installer.installCloudflared({ ...base, arch: "ia32" }), /unsupported architecture/);
     await assert.rejects(installer.installCloudflared({ ...base, dest: undefined }), /配置先/);
     assert.deepEqual(await readdir(dest).catch(() => []), []);
+  });
+});
+
+test("固定の版と合わない既存の実体は、取り直しに失敗したら外し、既定の探索先に残さない", async () => {
+  await withDest(async (dest) => {
+    await mkdir(dest, { recursive: true });
+    await writeFile(join(dest, "cloudflared"), "#!/bin/sh\necho an older build\n", { mode: 0o755 });
+
+    await assert.rejects(
+      installer.installCloudflared({
+        dest,
+        fetchImpl: stubFetch("", 503).fetchImpl,
+        arch: "x64",
+        platform: "linux",
+        checksums: CHECKSUMS,
+      }),
+      /HTTP 503/,
+    );
+    assert.deepEqual(await readdir(dest), [], "検証に落ちた実体を、BFF が選べないようにする");
+  });
+});
+
+test("動かない実体は、sha256 が合っていても公開しない", async () => {
+  await withDest(async (dest) => {
+    const broken = "#!/bin/sh\nexit 1\n";
+    await assert.rejects(
+      installer.installCloudflared({
+        dest,
+        fetchImpl: stubFetch(broken).fetchImpl,
+        arch: "x64",
+        platform: "linux",
+        checksums: { x64: digest(broken), arm64: digest(broken) },
+      }),
+      /not runnable/,
+    );
+    assert.deepEqual(await readdir(dest), [], "探索先にも、書き込み途中の実体にも残らない");
   });
 });
 

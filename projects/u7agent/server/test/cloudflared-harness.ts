@@ -55,7 +55,7 @@ export class FakeChild extends EventEmitter {
 
   constructor(
     readonly pid: number,
-    private readonly respond: (child: FakeChild, signal: NodeJS.Signals) => void,
+    private readonly respond: (child: FakeChild, signal: NodeJS.Signals) => boolean,
     private readonly onClosed: () => void,
   ) {
     super();
@@ -63,8 +63,7 @@ export class FakeChild extends EventEmitter {
 
   kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
     this.signals.push(signal);
-    this.respond(this, signal);
-    return true;
+    return this.respond(this, signal);
   }
 
   writeLog(text: string, stream: "stdout" | "stderr" = "stderr"): void {
@@ -104,11 +103,18 @@ export interface Harness {
   rootCwd: string;
   writableRoot: string;
   calls: SpawnCall[];
-  /** 子のメトリクスの応答。`quickTunnelBody` が null なら `/quicktunnel` は 404 */
-  metrics: { quickTunnelBody: string | null; readyStatus: number };
+  /**
+   * 子のメトリクスの応答。`quickTunnelBody` が null なら `/quicktunnel` は 404。
+   * `gate` があれば、どの応答もそれが解けるまで保留する (応答を待っている間の停止・終了・期限を試すため)
+   */
+  metrics: { quickTunnelBody: string | null; quickTunnelStatus: number; readyStatus: number; gate?: Promise<void> };
   behavior: {
     /** SIGTERM に応えず、SIGKILL まで残る */
     ignoreSigterm: boolean;
+    /** kill が拒否される (EPERM 相当。戻り値は false で、子は何も受けない) */
+    killDenied?: boolean;
+    /** メトリクスの待受が、子のものか。既定は "yes" */
+    listenerOwner?: "yes" | "no" | "unknown";
     /** 子ができた直後に呼ぶ (出力や終了を仕込む) */
     onSpawn?: (call: SpawnCall) => void;
     /** spawn に失敗した子 (`error` が出て終わる) を返す */
@@ -146,7 +152,7 @@ export async function createHarness(
     rootCwd,
     writableRoot,
     calls,
-    metrics: { quickTunnelBody: null, readyStatus: 503 },
+    metrics: { quickTunnelBody: null, quickTunnelStatus: 200, readyStatus: 503 },
     behavior: { ignoreSigterm: false },
     launcher: undefined as unknown as CloudflaredLauncher,
     launch: (originPort = 41_234) => {
@@ -162,9 +168,10 @@ export async function createHarness(
   };
 
   const startMetrics = (port: number): Server => {
-    const server = createServer((request, response) => {
+    const server = createServer(async (request, response) => {
+      await harness.metrics.gate;
       if (request.url === "/quicktunnel" && harness.metrics.quickTunnelBody !== null) {
-        response.writeHead(200, { "content-type": "text/plain" });
+        response.writeHead(harness.metrics.quickTunnelStatus, { "content-type": "text/plain" });
         response.end(harness.metrics.quickTunnelBody);
       } else if (request.url === "/ready") {
         response.writeHead(harness.metrics.readyStatus);
@@ -186,11 +193,13 @@ export async function createHarness(
     const child = new FakeChild(
       (nextPid += 1),
       (self, signal) => {
+        if (harness.behavior.killDenied) return false;
         if (signal === "SIGKILL") void self.exit(null, "SIGKILL");
         else if (!harness.behavior.ignoreSigterm) {
           self.writeLog(GRACEFUL_SHUTDOWN_LOG);
           void self.exit(0);
         }
+        return true;
       },
       () => metricsServer?.close(),
     );
@@ -217,8 +226,15 @@ export async function createHarness(
           startedAtMs: 1_700_000_000_000 + pid,
           exe: harness.realBinary,
           argv: [call.command, ...call.args],
+          cwd: call.cwd,
         }
-      : { state: "present", startedAtMs: 1_700_000_000_000, exe: process.execPath, argv: [process.execPath] };
+      : {
+          state: "present",
+          startedAtMs: 1_700_000_000_000,
+          exe: process.execPath,
+          argv: [process.execPath],
+          cwd: process.cwd(),
+        };
   };
 
   harness.launcher = createCloudflaredLauncher({
@@ -229,6 +245,7 @@ export async function createHarness(
     instancePort: 4317,
     spawn,
     readProcess,
+    listenerOwner: async () => harness.behavior.listenerOwner ?? "yes",
     deadlineMs: 3000,
     pollIntervalMs: 10,
     stopGraceMs: 150,

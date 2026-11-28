@@ -66,6 +66,9 @@ export async function installCloudflared({
     return { path: target, installed: false };
   }
 
+  // 固定した版と合わない実体は先に外す。取り直しに失敗しても、BFF の既定の探索先に検証に落ちたものを残さない
+  await rm(target, { force: true });
+
   const asset = `cloudflared-linux-${assetArch}`;
   const response = await fetchImpl(
     `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${asset}`,
@@ -76,19 +79,19 @@ export async function installCloudflared({
   if (actual !== expected) throw new Error(`sha256 mismatch for ${asset}: expected ${expected}, got ${actual}`);
 
   await mkdir(dest, { recursive: true });
-  // 書き込み途中の実体を BFF が起動しないよう、同じディレクトリで rename して差し替える
+  // 書き込み途中や動かない実体を BFF が起動しないよう、動くことを確かめてから、同じディレクトリで rename して公開する
   const partial = `${target}.partial-${process.pid}`;
+  let version = "";
   try {
     await writeFile(partial, binary, { mode: 0o755 });
     await chmod(partial, 0o755);
+    version = runVersion(partial);
+    if (!version.includes(CLOUDFLARED_VERSION)) {
+      throw new Error(`downloaded cloudflared is not runnable: ${version || "no output"}`);
+    }
     await rename(partial, target);
   } finally {
     await rm(partial, { force: true });
-  }
-
-  const version = runVersion(target);
-  if (!version.includes(CLOUDFLARED_VERSION)) {
-    throw new Error(`installed cloudflared is not runnable: ${version || "no output"}`);
   }
   log(`cloudflared を配置しました: ${target} (${version.split("\n")[0]})`);
   return { path: target, installed: true };

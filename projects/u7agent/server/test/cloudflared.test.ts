@@ -1,9 +1,9 @@
-// 一時共有の起動基盤 (server/src/cloudflared.ts) の契約を検証する。
+// 一時共有の起動基盤 (server/src/cloudflared.ts) の解決と起動の契約を検証する。
 // 実プロセス・実ネットワークは使わない。偽の spawn と、子のメトリクス (loopback) の偽サーバーで動かす。
-// 孤児の掃除だけは /proc を実際に読む必要があるため cloudflared-sweep.test.ts で扱う。
+// 孤児の掃除は cloudflared-sweep.test.ts、/proc の観測は cloudflared-proc.test.ts で扱う。
 
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import test from "node:test";
@@ -19,7 +19,7 @@ import {
 } from "../src/cloudflared";
 import { isInsideRoot } from "../src/path-strings";
 import { fixedLandlockWriteRoots, landlockWrapperDirs } from "../src/sandbox/landlock";
-import { createHarness, isPending, waitFor, writeExecutable } from "./cloudflared-harness";
+import { createHarness, isPending, sleep, waitFor, writeExecutable } from "./cloudflared-harness";
 import {
   EMPTY_CONFIG_LINE,
   NETWORK_FAILURE_LOG,
@@ -221,6 +221,11 @@ test("linux 以外は利用不可。ただし PI_CLOUDFLARED_PATH で指せば�
       unavailable("unsupported_platform"),
     );
     assert.equal(resolveCloudflared({ ...t.options(binary), platform: "darwin" }).available, true);
+    // 設定に渡す /dev/null が Unix の前提なので、Windows は指定しても使わない
+    assert.deepEqual(
+      resolveCloudflared({ ...t.options(binary), platform: "win32" }),
+      unavailable("unsupported_platform"),
+    );
   } finally {
     await t.cleanup();
   }
@@ -690,6 +695,207 @@ test("起動に失敗しても、呼び出し側が ready を待たなければ 
     assert.deepEqual(unhandled, []);
   } finally {
     process.off("unhandledRejection", onUnhandled);
+    await h.dispose();
+  }
+});
+
+test("共通スキルの root が作業領域の外を指す symlink でも、その実体の配下は書き込み先として扱う", async () => {
+  const t = await resolveTree();
+  try {
+    const elsewhere = join(t.base, "elsewhere");
+    await mkdir(elsewhere, { recursive: true });
+    await mkdir(join(t.workspace, ".agents"), { recursive: true });
+    await symlink(elsewhere, join(t.workspace, ".agents", "skills"));
+    const inside = join(elsewhere, "bin", "cloudflared");
+    await writeExecutable(inside);
+    const outside = join(t.binDir, "cloudflared");
+    await writeExecutable(outside);
+    const store = join(elsewhere, "store");
+    await mkdir(store);
+
+    assert.deepEqual(resolveCloudflared(t.options(inside)), unavailable("binary_in_write_root"));
+    assert.deepEqual(
+      resolveCloudflared({ ...t.options(outside), sessionStoreDir: store }),
+      unavailable("store_in_write_root"),
+    );
+    assert.equal(resolveCloudflared(t.options(outside)).available, true, "外にあるものは使える");
+  } finally {
+    await t.cleanup();
+  }
+});
+
+test("置き場 (tunnel/) がディレクトリでない・外を指す symlink なら、利用可と言わない", async () => {
+  const t = await resolveTree();
+  try {
+    const binary = join(t.binDir, "cloudflared");
+    await writeExecutable(binary);
+
+    await writeFile(join(t.store, "tunnel"), "not a directory");
+    assert.deepEqual(resolveCloudflared(t.options(binary)), unavailable("store_unusable"));
+    await rm(join(t.store, "tunnel"));
+
+    // 書き込み先ではない別の場所へ出る symlink。chmod と掃除が、置き場の外へ及ぶ
+    const elsewhere = join(t.base, "elsewhere");
+    await mkdir(elsewhere);
+    await symlink(elsewhere, join(t.store, "tunnel"));
+    assert.deepEqual(resolveCloudflared(t.options(binary)), unavailable("store_unusable"));
+  } finally {
+    await t.cleanup();
+  }
+});
+
+/** 子のメトリクスの応答を保留する (応答を待っている間に起きる停止・終了・期限を試す) */
+function holdResponses(h: Awaited<ReturnType<typeof createHarness>>): () => void {
+  let release: () => void = () => {};
+  h.metrics.gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+  h.metrics.readyStatus = 200;
+  return release;
+}
+
+test("応答を待っている間に stop() しても、ready は成功にならない", async () => {
+  const h = await createHarness();
+  try {
+    const release = holdResponses(h);
+    const handle = h.launch();
+    await waitFor(() => h.calls.length === 1, "spawn");
+    await sleep(60);
+    const stopping = handle.stop();
+    release();
+    await assert.rejects(
+      handle.ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "aborted",
+    );
+    await stopping;
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("応答を待っている間に子が終わっても、ready は成功にならない", async () => {
+  const h = await createHarness();
+  try {
+    const release = holdResponses(h);
+    const handle = h.launch();
+    await waitFor(() => h.calls.length === 1, "spawn");
+    await sleep(60);
+    await h.calls[0]?.child.exit(1);
+    release();
+    await assert.rejects(
+      handle.ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "exited",
+    );
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("応答を待っている間に期限を過ぎたら、応答を待たずに timeout にする", async () => {
+  const h = await createHarness({ deadlineMs: 150 });
+  try {
+    const release = holdResponses(h);
+    const handle = h.launch();
+    const settled = await Promise.race([
+      handle.ready.then(
+        () => "resolved",
+        (error: unknown) => (error instanceof CloudflaredLaunchError ? error.kind : "other"),
+      ),
+      sleep(1000).then(() => "still waiting"),
+    ]);
+    assert.equal(settled, "timeout", "保留された応答の解放を待たない");
+    release();
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("待受が子のものと確かめられないうちは、応答があっても ready にしない", async () => {
+  const h = await createHarness();
+  try {
+    h.behavior.listenerOwner = "no";
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: "someone-else.trycloudflare.com" });
+    h.metrics.readyStatus = 200;
+    const handle = h.launch();
+    await waitFor(() => h.calls.length === 1, "spawn");
+    assert.equal(await isPending(handle.ready, 200), true, "別のプロセスの待受の応答を採らない");
+
+    h.behavior.listenerOwner = "yes";
+    assert.deepEqual(await handle.ready, { url: "https://someone-else.trycloudflare.com" });
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("待受の所有を確かめられない環境 (/proc が無い) では、応答をそのまま採る", async () => {
+  const h = await createHarness();
+  try {
+    h.behavior.listenerOwner = "unknown";
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    assert.deepEqual(await h.launch().ready, { url: `https://${QUICK_TUNNEL_HOSTNAME}` });
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("/quicktunnel が 200 でない応答は、本文が正しくても採らない", async () => {
+  const h = await createHarness({ deadlineMs: 250 });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.quickTunnelStatus = 404;
+    h.metrics.readyStatus = 200;
+    await assert.rejects(
+      h.launch().ready,
+      (error: unknown) => error instanceof CloudflaredLaunchError && error.kind === "timeout",
+    );
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("子を止められなかったときは、記録と専用 HOME を残し、子が終わったときに消す", async () => {
+  const h = await createHarness({ stopGraceMs: 40, killWaitMs: 40 });
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    const handle = h.launch();
+    await handle.ready;
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+
+    h.behavior.killDenied = true;
+    await handle.stop();
+    assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+    assert.equal((await readdir(h.stateDir)).length, 2, "止められなかった子の記録は、次の掃除のために残す");
+
+    killLiveCloudflared();
+    assert.equal((await readdir(h.stateDir)).length, 2, "終了時の最終手段も、送れなかった子の記録は消さない");
+
+    await child.exit(0);
+    await waitFor(async () => (await readdir(h.stateDir)).length === 0, "子が終わったあとの片付け");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("子の close の通知の最中に stop() を呼んでも、exited は通知しない", async () => {
+  const h = await createHarness();
+  try {
+    h.metrics.quickTunnelBody = JSON.stringify({ hostname: QUICK_TUNNEL_HOSTNAME });
+    h.metrics.readyStatus = 200;
+    const handle = h.launch();
+    await handle.ready;
+    const child = h.calls[0]?.child;
+    assert.ok(child);
+
+    // 本体の close の処理のあとに、利用者の停止が同じ通知の中で入る
+    child.once("close", () => void handle.stop());
+    await child.exit(1);
+    await handle.stop();
+    assert.equal(await isPending(handle.exited), true);
+  } finally {
     await h.dispose();
   }
 });

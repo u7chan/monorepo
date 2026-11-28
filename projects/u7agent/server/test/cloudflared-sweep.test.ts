@@ -1,21 +1,19 @@
-// 前の BFF が残した cloudflared の掃除 (server/src/cloudflared.ts の sweepOrphans) を、実プロセスと /proc で検証する。
-// 子の代役は `node` を `tunnel` スクリプトで動かしたもの。実体が cloudflared のパスと同じで、cmdline が固定の引数の形になる。
-// 実体だけが違う代役には、同じ引数の形で動く `sh` を使う。
-// 記録だけを根拠に殺すと、書き換えた記録で他のプロセスを殺せてしまうため、一致しない場合に殺さないことを主に確かめる。
+// 前の BFF が残した cloudflared の掃除 (server/src/cloudflared.ts の sweepOrphans) を検証する。
+// プロセスの観測とシグナルはメモリ上の表で差し替え、実プロセスは起こさない。一致しないときに殺さないことを主に見る。
 
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createCloudflaredLauncher, type CloudflaredLauncher } from "../src/cloudflared";
-import { processStartedAtMs } from "../src/proc-stat";
-import { createHarness, isPending, sleep, waitFor } from "./cloudflared-harness";
-
-// 実プロセスの素性を /proc から読むので、Linux 以外では動かさない
-const LINUX_ONLY = { skip: process.platform !== "linux" };
+import {
+  createCloudflaredLauncher,
+  type CloudflaredLauncher,
+  type ProcessReading,
+  type SignalOutcome,
+} from "../src/cloudflared";
+import { createHarness, writeExecutable } from "./cloudflared-harness";
 
 const FIXED_ARGS = [
   "tunnel",
@@ -30,243 +28,313 @@ const FIXED_ARGS = [
   "http://127.0.0.1:8080",
 ];
 
-interface Identity {
+const SELF_START = 1_700_000_000_000;
+const DEAD_OWNER = { pid: 4999, startedAtMs: 1 };
+const LIVE_OWNER = { pid: process.pid, startedAtMs: SELF_START };
+
+type Present = Extract<ProcessReading, { state: "present" }>;
+
+interface RecordedIdentity {
   pid: number;
   startedAtMs: number;
   exe: string;
   argv: string[];
 }
 
-interface StandIn {
-  child: ChildProcess;
-  pid: number;
-  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
-}
+class ProcessTable {
+  readonly table = new Map<number, ProcessReading>();
+  readonly signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  readonly denied = new Set<number>();
+  readonly ignoresTerm = new Set<number>();
+  readonly immortal = new Set<number>();
+  /** 観測のあとに呼ぶ。並行して起動した BFF を差し込む */
+  afterRead?: (pid: number) => void;
+  /** シグナルのあとに呼ぶ。pid の再利用を差し込む */
+  afterSignal?: (pid: number, signal: NodeJS.Signals) => void;
 
-const isAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
+  readonly readProcess = async (pid: number): Promise<ProcessReading> => {
+    const reading = this.table.get(pid) ?? ({ state: "gone" } as const);
+    this.afterRead?.(pid);
+    return reading;
+  };
 
-/** 記録に書く素性を、掃除の実装とは別に /proc から読む */
-async function identityOf(pid: number): Promise<Identity> {
-  const startedAtMs = await processStartedAtMs(pid);
-  assert.ok(startedAtMs, "プロセスが居る");
-  const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
-  return { pid, startedAtMs, exe: await readlink(`/proc/${pid}/exe`), argv: cmdline.split("\0").slice(0, -1) };
-}
-
-async function deadPid(): Promise<number> {
-  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  const pid = child.pid;
-  assert.ok(pid);
-  await new Promise((done) => child.once("exit", done));
-  return pid;
+  readonly signalProcess = (pid: number, signal: NodeJS.Signals): SignalOutcome => {
+    this.signals.push({ pid, signal });
+    if (!this.table.has(pid)) return "gone";
+    if (this.denied.has(pid)) return "denied";
+    const survives = (signal === "SIGTERM" && this.ignoresTerm.has(pid)) || this.immortal.has(pid);
+    if (!survives) this.table.delete(pid);
+    this.afterSignal?.(pid, signal);
+    return "sent";
+  };
 }
 
 interface Fixture {
   base: string;
+  binary: string;
   stateDir: string;
+  procs: ProcessTable;
   launcher: CloudflaredLauncher;
-  standIns: StandIn[];
-  startStandIn(args?: string[], command?: string, cwd?: string): Promise<StandIn>;
+  /** 起動した子として実物が持つ素性 (cwd は専用 HOME)。記録に書く値の元にもなる */
+  genuine(pid: number, home: string): Present;
   writeRecord(name: string, record: unknown): Promise<void>;
+  makeHome(name: string): Promise<void>;
   cleanup(): Promise<void>;
 }
 
-async function createFixture(launcherOptions: { sweepTermWaitMs?: number } = {}): Promise<Fixture> {
+async function createFixture(): Promise<Fixture> {
   const base = await realpath(await mkdtemp(join(tmpdir(), "u7agent-cloudflared-sweep-")));
+  const binaryPath = join(base, "bin", "cloudflared");
+  await writeExecutable(binaryPath);
+  const binary = await realpath(binaryPath);
   const store = join(base, "store");
-  const stateDir = join(store, "tunnel");
+  await mkdir(store, { recursive: true });
+  const stateDir = join(await realpath(store), "tunnel");
   await mkdir(stateDir, { recursive: true });
   await mkdir(join(base, "workspace"), { recursive: true });
-  await writeFile(join(base, "tunnel"), "setInterval(() => {}, 1000);\n");
-  await mkdir(join(base, "sh"));
-  await writeFile(join(base, "sh", "tunnel"), "while :; do sleep 1; done\n");
-  const standIns: StandIn[] = [];
 
-  const fixture: Fixture = {
+  const procs = new ProcessTable();
+  procs.table.set(process.pid, {
+    state: "present",
+    startedAtMs: SELF_START,
+    exe: process.execPath,
+    argv: [process.execPath],
+    cwd: process.cwd(),
+  });
+
+  return {
     base,
+    binary,
     stateDir,
-    standIns,
+    procs,
     launcher: createCloudflaredLauncher({
-      // 代役の実体 (node) を cloudflared として扱う。置き場の判定は書き込み先を差し替えて通す
-      env: { PI_CLOUDFLARED_PATH: process.execPath },
+      env: { PI_CLOUDFLARED_PATH: binaryPath },
       sessionStoreDir: store,
       rootCwd: join(base, "workspace"),
       writeRoots: [join(base, "agent-writable")],
       instancePort: 4317,
-      ...launcherOptions,
+      readProcess: procs.readProcess,
+      signalProcess: procs.signalProcess,
+      sweepTermWaitMs: 40,
     }),
-    async startStandIn(args = FIXED_ARGS, command = process.execPath, cwd = base) {
-      const child = spawn(command, args, { cwd, stdio: "ignore" });
-      assert.ok(child.pid);
-      const standIn: StandIn = {
-        child,
-        pid: child.pid,
-        exited: new Promise((done) => child.once("exit", (code, signal) => done({ code, signal }))),
-      };
-      standIns.push(standIn);
-      return standIn;
-    },
+    genuine: (pid, home) => ({
+      state: "present",
+      startedAtMs: 10_000 + pid,
+      exe: binary,
+      argv: [binary, ...FIXED_ARGS],
+      cwd: join(stateDir, home),
+    }),
     writeRecord: (name, record) => writeFile(join(stateDir, name), JSON.stringify(record)),
-    async cleanup() {
-      for (const standIn of standIns) standIn.child.kill("SIGKILL");
-      await Promise.all(standIns.map((standIn) => standIn.exited));
-      await rm(base, { recursive: true, force: true });
+    makeHome: async (name) => {
+      await mkdir(join(stateDir, name));
+      await writeFile(join(stateDir, name, "state"), "x");
     },
+    cleanup: () => rm(base, { recursive: true, force: true }),
   };
-  return fixture;
 }
 
-const record = (owner: { pid: number; startedAtMs: number }, home: string, child: Identity | null) => ({
+const identity = (pid: number, reading: Present): RecordedIdentity => ({
+  pid,
+  startedAtMs: reading.startedAtMs,
+  exe: reading.exe,
+  argv: reading.argv,
+});
+
+const record = (owner: { pid: number; startedAtMs: number }, home: string, child: RecordedIdentity | null) => ({
   version: 1,
   owner,
   home,
   child,
 });
 
-test(
-  "書いた BFF が居なければ、実体・起動時刻・cmdline が記録と一致する子を殺し、記録と専用 HOME を消す",
-  LINUX_ONLY,
-  async () => {
-    const f = await createFixture();
-    try {
-      const standIn = await f.startStandIn();
-      await mkdir(join(f.stateDir, "home-4317-0a0a0a0a"));
-      await f.writeRecord(
-        "pid-4317-0a0a0a0a.json",
-        record({ pid: await deadPid(), startedAtMs: 1 }, "home-4317-0a0a0a0a", await identityOf(standIn.pid)),
-      );
+const HOME = "home-4317-0a0a0a0a";
+const RECORD = "pid-4317-0a0a0a0a.json";
 
-      const report = await f.launcher.sweepOrphans();
-      assert.deepEqual(report, { killed: 1, removedRecords: 1, removedHomes: 1 });
-      assert.deepEqual(await standIn.exited, { code: null, signal: "SIGTERM" });
-      assert.deepEqual(await readdir(f.stateDir), []);
-    } finally {
-      await f.cleanup();
-    }
-  },
-);
+/** 書いた BFF が居ない記録と、記録どおりの子を用意する */
+async function plantOrphan(f: Fixture, pid = 5001): Promise<Present> {
+  const reading = f.genuine(pid, HOME);
+  f.procs.table.set(pid, reading);
+  await f.makeHome(HOME);
+  await f.writeRecord(RECORD, record(DEAD_OWNER, HOME, identity(pid, reading)));
+  return reading;
+}
 
-test("SIGTERM に応えない子には、待ったあとで SIGKILL を送る", LINUX_ONLY, async () => {
-  const f = await createFixture({ sweepTermWaitMs: 300 });
+test("書いた BFF が居なければ、実物が記録と全部一致する子を止め、記録と専用 HOME を消す", async () => {
+  const f = await createFixture();
   try {
-    // ハンドラを入れ終えた目印を待ってから掃除へ進む (入れる前の SIGTERM は既定の動作で子を止めてしまう)
-    await writeFile(
-      join(f.base, "tunnel"),
-      'process.on("SIGTERM", () => {});\nrequire("node:fs").writeFileSync("ignoring-sigterm", "");\nsetInterval(() => {}, 1000);\n',
-    );
-    const standIn = await f.startStandIn();
-    await waitFor(() => existsSync(join(f.base, "ignoring-sigterm")), "SIGTERM の無視");
+    await plantOrphan(f);
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 1, failed: 0, removedRecords: 1, removedHomes: 1 });
+    assert.deepEqual(f.procs.signals, [{ pid: 5001, signal: "SIGTERM" }]);
+    assert.deepEqual(await readdir(f.stateDir), []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("書いた BFF が生きているあいだは、子も記録も専用 HOME も触らない", async () => {
+  const f = await createFixture();
+  try {
+    const reading = f.genuine(5001, HOME);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, record(LIVE_OWNER, HOME, identity(5001, reading)));
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("pid が別のプロセスに再利用されていれば (起動時刻が違えば) 書いた BFF は居ないものとして掃除する", async () => {
+  const f = await createFixture();
+  try {
+    const reading = f.genuine(5001, HOME);
+    f.procs.table.set(5001, reading);
     await f.writeRecord(
-      "pid-4317-0a0a0a0a.json",
-      record({ pid: await deadPid(), startedAtMs: 1 }, "home-4317-0a0a0a0a", await identityOf(standIn.pid)),
+      RECORD,
+      record({ pid: process.pid, startedAtMs: SELF_START + 12_345 }, HOME, identity(5001, reading)),
     );
 
     assert.equal((await f.launcher.sweepOrphans()).killed, 1);
-    assert.equal((await standIn.exited).signal, "SIGKILL");
+    assert.deepEqual(f.procs.signals, [{ pid: 5001, signal: "SIGTERM" }]);
   } finally {
     await f.cleanup();
   }
 });
 
-test("書いた BFF が生きているあいだは、子も記録も専用 HOME も触らない", LINUX_ONLY, async () => {
+test("記録が他のプロセスを指していても殺さない (実物の実体・起動時刻・cmdline・作業ディレクトリ・引数の形のどれかが違えば)", async () => {
   const f = await createFixture();
   try {
-    const standIn = await f.startStandIn();
-    await mkdir(join(f.stateDir, "home-4317-0a0a0a0a"));
-    const owner = { pid: process.pid, startedAtMs: (await processStartedAtMs(process.pid)) ?? 0 };
-    await f.writeRecord("pid-4317-0a0a0a0a.json", record(owner, "home-4317-0a0a0a0a", await identityOf(standIn.pid)));
+    const otherHome = join(f.stateDir, "home-4317-bbbbbbbb");
+    const cases: Array<{ actual?: Partial<Present>; recorded?: Partial<RecordedIdentity> }> = [
+      // 無関係なプロセスを、実物どおりに書いた記録
+      {
+        actual: { exe: "/usr/bin/vim", argv: ["/usr/bin/vim", "a.txt"] },
+        recorded: { exe: "/usr/bin/vim", argv: ["/usr/bin/vim", "a.txt"] },
+      },
+      // 別の実体で、引数だけが固定の形
+      { actual: { exe: "/bin/sh" }, recorded: { exe: "/bin/sh" } },
+      // 起動時刻が違う
+      { recorded: { startedAtMs: 10_000 + 7002 + 10 } },
+      // cmdline が記録と違う
+      { recorded: { argv: [f.binary, ...FIXED_ARGS.slice(0, -1), "http://127.0.0.1:9"] } },
+      // 引数が固定の形でない
+      {
+        actual: { argv: [f.binary, ...FIXED_ARGS, "--extra"] },
+        recorded: { argv: [f.binary, ...FIXED_ARGS, "--extra"] },
+      },
+      // 記録の実体を cloudflared と偽る
+      { actual: { exe: "/bin/sh" } },
+      // 作業ディレクトリが、記録の専用 HOME ではない (別インスタンスの子)
+      { actual: { cwd: otherHome } },
+    ];
+    for (const [index, { actual, recorded }] of cases.entries()) {
+      const pid = 7000 + index;
+      const home = `home-4317-0000000${index}`;
+      f.procs.table.set(pid, { ...f.genuine(pid, home), ...actual });
+      await f.writeRecord(
+        `pid-4317-0000000${index}.json`,
+        record(DEAD_OWNER, home, { ...identity(pid, f.genuine(pid, home)), ...recorded }),
+      );
+    }
 
     const report = await f.launcher.sweepOrphans();
-    assert.deepEqual(report, { killed: 0, removedRecords: 0, removedHomes: 0 });
-    assert.equal(await isPending(standIn.exited, 150), true);
-    assert.deepEqual((await readdir(f.stateDir)).sort(), ["home-4317-0a0a0a0a", "pid-4317-0a0a0a0a.json"]);
+    assert.equal(report.killed, 0);
+    assert.equal(report.removedRecords, cases.length, "一致しないときは、何も殺さず記録だけ消す");
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual(await readdir(f.stateDir), []);
   } finally {
     await f.cleanup();
   }
 });
 
-test(
-  "pid が別のプロセスに再利用されていれば (起動時刻が違えば) 書いた BFF は居ないものとして掃除する",
-  LINUX_ONLY,
-  async () => {
+test("生きている BFF の記録が指す子は、別の記録が同じ子を指しても殺さない", async () => {
+  const f = await createFixture();
+  try {
+    const reading = f.genuine(5001, HOME);
+    f.procs.table.set(5001, reading);
+    await f.makeHome(HOME);
+    await f.writeRecord(RECORD, record(LIVE_OWNER, HOME, identity(5001, reading)));
+    // 書き換えた記録が、稼働中の BFF の子を自分の子として指す
+    await f.writeRecord("pid-4317-0b0b0b0b.json", record(DEAD_OWNER, HOME, identity(5001, reading)));
+
+    const report = await f.launcher.sweepOrphans();
+    assert.equal(report.killed, 0);
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD], "稼働中の BFF の記録と専用 HOME は残る");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("SIGTERM に応えない子には、待ったあとで SIGKILL を送る", async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    f.procs.ignoresTerm.add(5001);
+
+    assert.equal((await f.launcher.sweepOrphans()).killed, 1);
+    assert.deepEqual(
+      f.procs.signals.map((entry) => entry.signal),
+      ["SIGTERM", "SIGKILL"],
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("SIGTERM のあとに pid が別のプロセスへ再利用されたら、SIGKILL を送らない", async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    f.procs.ignoresTerm.add(5001);
+    f.procs.afterSignal = (pid) => {
+      f.procs.table.set(pid, {
+        ...f.genuine(pid, HOME),
+        startedAtMs: 99_999,
+        exe: "/usr/bin/bystander",
+        argv: ["/usr/bin/bystander"],
+      });
+    };
+
+    await f.launcher.sweepOrphans();
+    assert.deepEqual(
+      f.procs.signals.map((entry) => entry.signal),
+      ["SIGTERM"],
+      "別のプロセスには何も送らない",
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("止められなかった子 (kill の拒否・SIGKILL でも残る) は、記録と専用 HOME を残して failed に数える", async () => {
+  const cases: Array<[string, (procs: ProcessTable) => void]> = [
+    ["kill が拒否される", (procs) => procs.denied.add(5001)],
+    ["SIGKILL でも残る", (procs) => procs.immortal.add(5001)],
+  ];
+  for (const [name, setup] of cases) {
     const f = await createFixture();
     try {
-      const standIn = await f.startStandIn();
-      const startedAtMs = (await processStartedAtMs(process.pid)) ?? 0;
-      await f.writeRecord(
-        "pid-4317-0a0a0a0a.json",
-        record(
-          { pid: process.pid, startedAtMs: startedAtMs + 12_345 },
-          "home-4317-0a0a0a0a",
-          await identityOf(standIn.pid),
-        ),
+      await plantOrphan(f);
+      setup(f.procs);
+
+      assert.deepEqual(
+        await f.launcher.sweepOrphans(),
+        { killed: 0, failed: 1, removedRecords: 0, removedHomes: 0 },
+        name,
       );
-
-      assert.equal((await f.launcher.sweepOrphans()).killed, 1);
-      assert.equal((await standIn.exited).signal, "SIGTERM");
+      assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD], `${name}: 次の掃除が見つけられるように残す`);
     } finally {
       await f.cleanup();
     }
-  },
-);
+  }
+});
 
-test(
-  "記録が他のプロセスを指していても殺さない (実体・起動時刻・cmdline・引数の形のどれかが違えば)",
-  LINUX_ONLY,
-  async () => {
-    const f = await createFixture();
-    try {
-      const ownerGone = { pid: await deadPid(), startedAtMs: 1 };
-      const unrelated = await f.startStandIn(["-e", "setInterval(() => {}, 1000)"]);
-      const otherExecutable = await f.startStandIn(FIXED_ARGS, "/bin/sh", join(f.base, "sh"));
-      const wrongStart = await f.startStandIn();
-      const wrongArgv = await f.startStandIn();
-      const extraArg = await f.startStandIn([...FIXED_ARGS, "--extra"]);
-      const claimedExe = await f.startStandIn(FIXED_ARGS, "/bin/sh", join(f.base, "sh"));
-
-      const forged: Array<[string, Identity]> = [
-        ["unrelated", await identityOf(unrelated.pid)],
-        ["other-exe", await identityOf(otherExecutable.pid)],
-        [
-          "wrong-start",
-          { ...(await identityOf(wrongStart.pid)), startedAtMs: (await identityOf(wrongStart.pid)).startedAtMs + 10 },
-        ],
-        [
-          "wrong-argv",
-          {
-            ...(await identityOf(wrongArgv.pid)),
-            argv: [process.execPath, ...FIXED_ARGS.slice(0, -1), "http://127.0.0.1:9"],
-          },
-        ],
-        ["extra-arg", await identityOf(extraArg.pid)],
-        // exe を cloudflared のパスと書いても、/proc の実体 (sh) と食い違う
-        ["claimed-exe", { ...(await identityOf(claimedExe.pid)), exe: await realpath(process.execPath) }],
-      ];
-      for (const [index, [name, identity]] of forged.entries()) {
-        await f.writeRecord(`pid-4317-0000000${index}.json`, record(ownerGone, `home-4317-0000000${index}`, identity));
-        assert.ok(name);
-      }
-
-      const report = await f.launcher.sweepOrphans();
-      assert.equal(report.killed, 0);
-      assert.equal(report.removedRecords, 6, "一致しないときは、何も殺さず記録だけ消す");
-      await sleep(150);
-      for (const standIn of f.standIns) assert.equal(isAlive(standIn.pid), true);
-      assert.deepEqual(await readdir(f.stateDir), []);
-    } finally {
-      await f.cleanup();
-    }
-  },
-);
-
-test("壊れた記録や不正な記録があっても落ちず、記録だけ消して置き場の外は消さない", LINUX_ONLY, async () => {
+test("壊れた記録や不正な記録があっても落ちず、記録だけ消して置き場の外は消さない", async () => {
   const f = await createFixture();
   try {
     const victim = join(f.base, "victim");
@@ -274,10 +342,7 @@ test("壊れた記録や不正な記録があっても落ちず、記録だけ�
     await writeFile(join(victim, "keep.txt"), "keep");
     await writeFile(join(f.stateDir, "pid-4317-0b0b0b0b.json"), "{not json");
     await f.writeRecord("pid-4317-0c0c0c0c.json", { version: 2 });
-    await f.writeRecord(
-      "pid-4317-0d0d0d0d.json",
-      record({ pid: await deadPid(), startedAtMs: 1 }, "../../victim", null),
-    );
+    await f.writeRecord("pid-4317-0d0d0d0d.json", record(DEAD_OWNER, "../../victim", null));
     await writeFile(join(f.stateDir, "notes.txt"), "not ours");
 
     const report = await f.launcher.sweepOrphans();
@@ -289,18 +354,13 @@ test("壊れた記録や不正な記録があっても落ちず、記録だけ�
   }
 });
 
-test("残った古い専用 HOME は消すが、生きている BFF の HOME と、名前の形が違うものは消さない", LINUX_ONLY, async () => {
+test("残った古い専用 HOME は消すが、生きている BFF の HOME と、名前の形が違うものは消さない", async () => {
   const f = await createFixture();
   try {
-    for (const name of ["home-4317-deadbeef", "home-4317-cafecafe", "home-abc", "other-dir"]) {
-      await mkdir(join(f.stateDir, name));
-      await writeFile(join(f.stateDir, name, "state"), "x");
-    }
-    const owner = { pid: process.pid, startedAtMs: (await processStartedAtMs(process.pid)) ?? 0 };
-    await f.writeRecord("pid-4317-cafecafe.json", record(owner, "home-4317-cafecafe", null));
+    for (const name of ["home-4317-deadbeef", "home-4317-cafecafe", "home-abc", "other-dir"]) await f.makeHome(name);
+    await f.writeRecord("pid-4317-cafecafe.json", record(LIVE_OWNER, "home-4317-cafecafe", null));
 
-    const report = await f.launcher.sweepOrphans();
-    assert.deepEqual(report, { killed: 0, removedRecords: 0, removedHomes: 1 });
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 1 });
     assert.deepEqual((await readdir(f.stateDir)).sort(), [
       "home-4317-cafecafe",
       "home-abc",
@@ -312,17 +372,71 @@ test("残った古い専用 HOME は消すが、生きている BFF の HOME と
   }
 });
 
-test("置き場がまだ無くても、掃除は何もせず終わる", LINUX_ONLY, async () => {
+test("掃除の最中に、同じ置き場で別の BFF が起動して記録と専用 HOME を作っても、それは消さない", async () => {
   const f = await createFixture();
   try {
-    await rm(f.stateDir, { recursive: true });
-    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, removedRecords: 0, removedHomes: 0 });
+    await plantOrphan(f);
+    const otherHome = "home-4320-0e0e0e0e";
+    let started = false;
+    // 古い記録の持ち主を確かめている最中に、稼働中の別の BFF が、記録 → 専用 HOME の順に作る
+    f.procs.afterRead = (pid) => {
+      if (pid !== DEAD_OWNER.pid || started) return;
+      started = true;
+      writeFileSync(join(f.stateDir, "pid-4320-0e0e0e0e.json"), JSON.stringify(record(LIVE_OWNER, otherHome, null)));
+      mkdirSync(join(f.stateDir, otherHome));
+    };
+
+    const report = await f.launcher.sweepOrphans();
+    assert.equal(started, true);
+    assert.equal(report.killed, 1);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [otherHome, "pid-4320-0e0e0e0e.json"]);
   } finally {
     await f.cleanup();
   }
 });
 
-test("launch は掃除が終わってから子を起こす", LINUX_ONLY, async () => {
+test("/proc を読めない環境では、何も殺さず何も消さない", async () => {
+  const f = await createFixture();
+  try {
+    await plantOrphan(f);
+    f.procs.table.delete(process.pid);
+
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+    assert.deepEqual(f.procs.signals, []);
+    assert.deepEqual((await readdir(f.stateDir)).sort(), [HOME, RECORD]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("書いている最中に止まった古い .json.tmp だけを消す", async () => {
+  const f = await createFixture();
+  try {
+    const stale = join(f.stateDir, "pid-4317-aaaaaaaa.json.tmp");
+    const fresh = join(f.stateDir, "pid-4317-bbbbbbbb.json.tmp");
+    await writeFile(stale, "{");
+    await writeFile(fresh, "{");
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    await utimes(stale, longAgo, longAgo);
+
+    await f.launcher.sweepOrphans();
+    assert.deepEqual(await readdir(f.stateDir), ["pid-4317-bbbbbbbb.json.tmp"]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("置き場がまだ無くても、掃除は何もせず終わる", async () => {
+  const f = await createFixture();
+  try {
+    await rm(f.stateDir, { recursive: true });
+    assert.deepEqual(await f.launcher.sweepOrphans(), { killed: 0, failed: 0, removedRecords: 0, removedHomes: 0 });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("launch は掃除が終わってから子を起こす", async () => {
   const h = await createHarness();
   try {
     await mkdir(h.stateDir, { recursive: true });
