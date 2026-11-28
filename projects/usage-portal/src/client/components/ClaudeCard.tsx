@@ -16,7 +16,6 @@ import {
   claudeRefreshMessage,
   claudeResetCreditsMessage,
 } from "../lib/claude";
-import { describeClaudeResetCredits } from "../lib/format";
 import { claudeStartFooter, claudeStartRunMessage } from "../lib/claude-start";
 import { ClaudeStartPanel, type ClaudeStartTab } from "./ClaudeStartPanel";
 import { Modal } from "./Modal";
@@ -186,7 +185,6 @@ export function ClaudeCard(props: {
   const busy = refreshing || fetchingReset || loggingOut || starting;
   const rolling = props.source.windows.find((window) => window.id === "rolling") ?? null;
   const footer = claudeStartFooter(start, rolling, props.now);
-  const reset = describeClaudeResetCredits(props.source.claudeResetCredits, props.now);
   const items: MenuItem[] = [
     { label: "更新", onSelect: () => void refresh(), disabled: busy },
     { label: "リセット枠を取得", onSelect: () => void fetchReset(), disabled: busy },
@@ -215,28 +213,6 @@ export function ClaudeCard(props: {
       compact={props.compact}
       headerMenu={<OverflowMenu label="Claude の操作" items={items} />}
     >
-      {reset === null ? null : (
-        <div class="up-reset-credits">
-          {reset.label === null ? null : <p class="up-caption">{reset.label}</p>}
-          {reset.rows.length > 0 ? (
-            <ul class="up-reset-credits-list">
-              {reset.rows.map((row, index) => (
-                <li class="up-caption" key={`${row.at}:${index}`}>
-                  <span class="up-badge">{row.remaining}</span>
-                  <span class="up-nowrap">{row.at}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {reset.notes.map((note) => (
-            <p class="up-caption" key={note}>
-              {note}
-            </p>
-          ))}
-          {reset.captured === null ? null : <p class="up-caption">{reset.captured}</p>}
-        </div>
-      )}
-
       {footer === null ? null : footer.tone === "normal" ? (
         <p class="up-caption up-start-footer">{footer.text}</p>
       ) : (

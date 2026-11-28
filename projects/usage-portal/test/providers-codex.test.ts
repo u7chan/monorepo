@@ -115,7 +115,7 @@ describe("parseCodexUsage", () => {
       CAPTURED,
     );
 
-    expect(withNotes.notes).toEqual(["クレジット残高 25"]);
+    expect(withNotes.notes).toEqual(["クレジット 25"]);
     expect(withNotes.resetCredits).toEqual({ available: 2, details: null });
 
     const withoutNotes = parseCodexUsage(
@@ -133,9 +133,9 @@ describe("parseCodexUsage", () => {
     const notesOf = (credits: Record<string, unknown>) =>
       parseCodexUsage(usage({ primary_window: { used_percent: 10 } }, { credits }), CAPTURED).notes;
 
-    expect(notesOf({ has_credits: false, balance: "0" })).toEqual(["クレジット残高 0"]);
-    expect(notesOf({ has_credits: true, balance: "12.6" })).toEqual(["クレジット残高 13"]);
-    expect(notesOf({ has_credits: true, balance: null })).toEqual(["クレジット残高あり"]);
+    expect(notesOf({ has_credits: false, balance: "0" })).toEqual(["クレジットなし"]);
+    expect(notesOf({ has_credits: true, balance: "12.6" })).toEqual(["クレジット 13"]);
+    expect(notesOf({ has_credits: true, balance: null })).toEqual(["クレジットあり"]);
     expect(notesOf({ has_credits: false, balance: null })).toEqual([]);
     expect(notesOf({ unlimited: true, has_credits: true, balance: "0" })).toEqual(["クレジット無制限"]);
   });

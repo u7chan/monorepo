@@ -1,7 +1,7 @@
 // 推移の初期表示は週次。窓は短い方が長い方に含まれ、外側が尽きたら内側は使えない。
 import { describe, expect, test } from "bun:test";
 import type { UsageWindow } from "../src/client/api";
-import { findBlockedWindows, isRolling, pickTrendWindow } from "../src/client/lib/windows";
+import { arrangeWindowSlots, findBlockedWindows, isRolling, pickTrendWindow } from "../src/client/lib/windows";
 
 function window(id: string, label: string, usedPercent = 10): UsageWindow {
   return { id, label, durationSeconds: null, usedPercent, resetsAt: null };
@@ -84,5 +84,41 @@ describe("findBlockedWindows", () => {
   test("期間の分からないラベルは比較に参加させない", () => {
     expect(blockedLabels([window("primary", "不明", 10), window("secondary", "月次", 100)])).toEqual({});
     expect(blockedLabels([window("primary", "月次", 100), window("secondary", "不明", 10)])).toEqual({});
+  });
+});
+
+describe("arrangeWindowSlots", () => {
+  test("Codex は 5 時間枠が返らなくても、その場所を空きスロットとして残す", () => {
+    const weekly = window("secondary", "週次", 76);
+
+    expect(arrangeWindowSlots("codex", [weekly])).toEqual([
+      { label: "ローリング", absentNote: "5 時間枠は提供されていません" },
+      { window: weekly },
+    ]);
+  });
+
+  test("Codex の 2 窓は API の順ではなくローリング・週次の順に並べる", () => {
+    const rolling = window("primary", "ローリング", 10);
+    const weekly = window("secondary", "週次", 20);
+
+    expect(arrangeWindowSlots("codex", [weekly, rolling])).toEqual([{ window: rolling }, { window: weekly }]);
+  });
+
+  test("定義の無い provider と空の一覧はそのまま返す", () => {
+    const windows = threeWindows(10, 20, 30);
+
+    expect(arrangeWindowSlots("opencode-go", windows)).toEqual(windows.map((window) => ({ window })));
+    expect(arrangeWindowSlots("codex", [])).toEqual([]);
+  });
+
+  test("定義に無い窓は落とさず、末尾に出す", () => {
+    const weekly = window("secondary", "週次", 76);
+    const extra = window("other", "不明", 5);
+
+    expect(arrangeWindowSlots("codex", [weekly, extra])).toEqual([
+      { label: "ローリング", absentNote: "5 時間枠は提供されていません" },
+      { window: weekly },
+      { window: extra },
+    ]);
   });
 });

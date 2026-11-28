@@ -45,7 +45,7 @@ Codex の利用枠を読むには ChatGPT の OAuth access token と `chatgpt-ac
 
 - 利用枠は `GET https://chatgpt.com/backend-api/wham/usage` を `Authorization: Bearer <access>` と
   `chatgpt-account-id: <accountId>` で読む。公開契約ではないため、変更されたら adapter を直す。
-- `primary_window` / `secondary_window` は `null` を許容する。返ってきた窓だけを表示する。
+- `primary_window` / `secondary_window` は `null` を許容する。返ってきた窓だけを数値として表示する（値の無い枠を非活性で並べることはある）。
 - `reset_at`（epoch 秒）を優先し、無ければ取得時刻 + `reset_after_seconds` を使う。
 - `rate_limit.limit_reached` が true、または `allowed` が false なら上限到達として扱う。
 - リセット枠の回数は `rate_limit_reset_credits.available_count` から読む。期限は usage に含まれないため、
@@ -55,8 +55,8 @@ Codex の利用枠を読むには ChatGPT の OAuth access token と `chatgpt-ac
   回数だけの表示に戻す。期限を推測して出さない（取得できていないことを「期限なし」と書かない）。
 - 詳細 API の一覧は `available_count` より短いことがある。確認できた枠（期限あり・期限なし）を保持し、
   一覧に無い枠だけを期限不明として扱う。期限なしと期限不明を同じ表示にしない。
-- クレジット残高は `credits.balance`（文字列）を数値に丸めて注記する。`unlimited` は「無制限」、
-  数値を読めないときは `has_credits` の有無だけを注記する。
+- クレジット残高は `credits.balance`（文字列）を数値に丸めて注記する（0 は「クレジットなし」、正の値は「クレジット 13」、
+  `unlimited` は「クレジット無制限」）。数値を読めないときは `has_credits` の有無だけを注記する。
 - `email`、`user_id`、上流の生 JSON は保存しない。リセット枠は回数と、確認できた枠の期限（または期限なし）だけを snapshot に残す。
 - device code / OAuth の callback はコンテナ内に閉じるため、スマホからはデバイスコードで承認する。
 

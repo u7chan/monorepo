@@ -281,10 +281,13 @@ function describeCreditBalance(credits: Record<string, unknown> | null): string 
   const balance = raw === null ? Number.NaN : Number(raw);
 
   if (Number.isFinite(balance)) {
-    return `クレジット残高 ${Math.round(balance)}`;
+    const rounded = Math.round(balance);
+
+    // 「残高 0」は通帳のように読める。0 は「なし」、正の値は数値だけで出す。
+    return rounded > 0 ? `クレジット ${rounded}` : "クレジットなし";
   }
 
-  return credits.has_credits === true ? "クレジット残高あり" : null;
+  return credits.has_credits === true ? "クレジットあり" : null;
 }
 
 function resetAt(raw: Record<string, unknown>, capturedAt: number): number | null {

@@ -2,14 +2,22 @@ import type { ComponentChildren } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import type { UsageSource } from "../api";
 import { isOnDemandProvider } from "../../shared/on-demand";
-import { describeAge, describeResetCredits, formatClock, formatDateTime, formatFetchInterval } from "../lib/format";
+import {
+  describeAge,
+  describeClaudeResetCredits,
+  describeResetCredits,
+  formatClock,
+  formatDateTime,
+  formatFetchInterval,
+} from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
-import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
+import { arrangeWindowSlots, findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
 import { ProviderIcon } from "./ProviderIcon";
+import { ResetCreditsSection } from "./ResetCreditsSection";
 import { StatusLabel } from "./StatusLabel";
 import { TrendChart } from "./Trend";
-import { UsageMeter } from "./UsageMeter";
+import { AbsentMeter, UsageMeter } from "./UsageMeter";
 
 export function ProviderCard(props: {
   source: UsageSource;
@@ -33,12 +41,22 @@ export function ProviderCard(props: {
   });
   const showMeters = showsWindows(source.state) && source.windows.length > 0;
   const chartWindows = showMeters ? source.windows : [];
+  // 取得に失敗した snapshot に「枠が無い」と書かない。空きスロットは正常な応答のときだけ足す。
+  const windowSlots =
+    source.state === "ok"
+      ? arrangeWindowSlots(source.provider, source.windows)
+      : source.windows.map((window) => ({ window }));
   const blocked = findBlockedWindows(chartWindows);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
   const intervalLabel = formatFetchInterval(source.fetchIntervalMs);
-  const resetCredits = source.resetCredits ? describeResetCredits(source.resetCredits, props.now) : null;
+  const resetCredits =
+    source.provider === "claude"
+      ? describeClaudeResetCredits(source.claudeResetCredits, props.now)
+      : source.resetCredits
+        ? describeResetCredits(source.resetCredits, props.now)
+        : null;
   const hint = retryHint(source, intervalLabel);
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
@@ -89,14 +107,18 @@ export function ProviderCard(props: {
 
       {showMeters ? (
         <div class="up-meters">
-          {source.windows.map((window) => (
-            <UsageMeter
-              key={window.id}
-              window={window}
-              now={props.now}
-              blockedBy={blocked.get(window.id)?.byLabel ?? null}
-            />
-          ))}
+          {windowSlots.map((slot) =>
+            "window" in slot ? (
+              <UsageMeter
+                key={slot.window.id}
+                window={slot.window}
+                now={props.now}
+                blockedBy={blocked.get(slot.window.id)?.byLabel ?? null}
+              />
+            ) : (
+              <AbsentMeter key={`absent:${slot.label}`} label={slot.label} note={slot.absentNote} />
+            ),
+          )}
         </div>
       ) : null}
 
@@ -119,36 +141,7 @@ export function ProviderCard(props: {
         </div>
       ) : null}
 
-      {resetCredits ? (
-        <div class="up-reset-credits">
-          <p class="up-caption">{resetCredits.label}</p>
-          {resetCredits.rows.length > 0 ? (
-            <ul class="up-reset-credits-list">
-              {resetCredits.rows.map((row, index) => (
-                <li class="up-caption" key={`${row.at}:${index}`}>
-                  <span class="up-badge">{row.remaining}</span>
-                  <span class="up-nowrap">{row.at}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {resetCredits.notes.map((note) => (
-            <p class="up-caption" key={note}>
-              {note}
-            </p>
-          ))}
-        </div>
-      ) : null}
-
-      {source.notes.length > 0 ? (
-        <ul class="up-notes">
-          {source.notes.map((note) => (
-            <li class="up-caption" key={note}>
-              {note}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {resetCredits ? <ResetCreditsSection view={resetCredits} /> : null}
 
       {activeWindow && !props.compact ? (
         <TrendChart
@@ -163,6 +156,16 @@ export function ProviderCard(props: {
           }
           onSelect={setSelectedWindowId}
         />
+      ) : null}
+
+      {source.notes.length > 0 ? (
+        <ul class="up-notes">
+          {source.notes.map((note) => (
+            <li class="up-caption" key={note}>
+              {note}
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       <footer class="up-provider-foot">

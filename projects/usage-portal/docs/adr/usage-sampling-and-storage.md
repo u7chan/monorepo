@@ -10,7 +10,7 @@ Codex・OpenCode Go・Claude・Gemini は、どれも利用枠を返すが形が
 OpenCode Go は `usage.rolling` / `weekly` / `monthly` を固定で持ち、`resetsAt` は ISO 8601 で返る。
 Claude と Gemini は公式 CLI の出力から読む。どれもこの用途向けの公開契約ではなく、窓が欠けることがある。
 
-画面は「返ってきた窓だけ」を出し、取得できなかった provider は前回の値を残す。推移も出す。
+画面は使用率を「返ってきた窓だけ」に出し、取得できなかった provider は前回の値を残す。推移も出す。
 
 ## 決定
 

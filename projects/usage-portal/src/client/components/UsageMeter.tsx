@@ -57,3 +57,18 @@ export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy:
     </div>
   );
 }
+
+/** 値の無い枠。バーは破線の枠だけにして、0% ではなく「枠が無い」と読ませる。 */
+export function AbsentMeter(props: { label: string; note: string }) {
+  // progressbar にすると 0% か 100% のどちらかに読める。値が無いことは文で伝える。
+  return (
+    <div class="up-meter" data-state="absent">
+      <div class="up-meter-head">
+        <span class="up-meter-label">{props.label}</span>
+        <span class="up-meter-value">—</span>
+      </div>
+      <div class="up-meter-track" data-state="absent" aria-hidden="true" />
+      <p class="up-caption up-meter-reset">{props.note}</p>
+    </div>
+  );
+}
