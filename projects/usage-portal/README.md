@@ -78,6 +78,10 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 ローリングは 5 時間以内に終わって日付が残り時間から分かるため日付を省き、日をまたぐときだけ「リセット 翌 02:00」と出す。
+Codex のカードは利用枠の下に「リセット枠 2回」と、枠ごとの期限（「あと 15 日 期限 12/13 07:36」）を全部出す。
+期限は公式のリセット詳細から読み、取得できなかったときは回数だけを出す（期限を推測しない）。
+期限なしと確認できた枠は「期限なし」、詳細の一覧に無い枠は「期限不明」として区別する。
+クレジット残高は数値（「クレジット残高 0」）で出し、数値を読めないときだけ有無を出す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
 カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
@@ -119,7 +123,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/auth/setup`                  | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201）                                                                                                                                                                              |
 | `POST`   | `/api/auth/login`                  | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`）                                                                                                                                                 |
 | `POST`   | `/api/auth/logout`                 | 不要 | cookie を消す（204）                                                                                                                                                                                                                                          |
-| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs` と `nextFetchAt` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
+| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs`、`nextFetchAt`、Codex だけ `resetCredits` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
 | `GET`    | `/api/settings/fetch-intervals`    | 必要 | `{ intervals: { codex, "opencode-go" } }`（ミリ秒）。未設定の provider は既定値                                                                                                                                                                               |
 | `PUT`    | `/api/settings/fetch-intervals`    | 必要 | `{ "provider": "codex", "minutes": 10 }`。5 / 10 / 30 / 60 / 120 以外は 400。サーバー全体に効く                                                                                                                                                              |
 | `GET`    | `/api/codex/auth`                  | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態                                                                                                                                                                                                 |

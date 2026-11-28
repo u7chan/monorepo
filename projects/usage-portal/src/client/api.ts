@@ -37,6 +37,9 @@ export type ProviderState = "loading" | "ok" | "stale" | "error";
 /** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
 export type UsageSourceAccount = { id: string; name: string; icon: string };
 
+/** Codex のリセット枠。`details` が null なら期限は未取得で、回数だけが分かる。 */
+export type ResetCredits = { available: number; details: { expiresAt: number | null }[] | null };
+
 export type UsageSource = {
   /** `codex` または account の uuid。 */
   id: string;
@@ -54,6 +57,8 @@ export type UsageSource = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
+  /** Codex のリセット枠。他の provider と、古い server の応答では null。 */
+  resetCredits: ResetCredits | null;
   /** 窓ごとの推移。2 点未満の窓は含まれない。 */
   trends: Trend[];
 };
@@ -762,6 +767,7 @@ function parseSource(value: unknown): UsageSource | null {
       .map(parseWindow)
       .filter((window) => window !== null),
     notes: readStrings(value, "notes"),
+    resetCredits: parseResetCredits(readObject(value, "resetCredits")),
     trends: readObjects(value, "trends")
       .map(parseTrend)
       .filter((trend) => trend !== null),
@@ -776,6 +782,39 @@ function parseSourceAccount(value: Record<string, unknown> | null): UsageSourceA
   }
 
   return { id, name: readString(value, "name") ?? "", icon: readString(value, "icon") ?? "" };
+}
+
+function parseResetCredits(value: Record<string, unknown> | null): ResetCredits | null {
+  const available = value ? readNumber(value, "available") : null;
+
+  if (!value || available === null || available <= 0) {
+    return null;
+  }
+
+  return {
+    available,
+    details: Array.isArray(value.details)
+      ? readObjects(value, "details").map(parseResetCreditDetail).filter(isPresent)
+      : null,
+  };
+}
+
+function parseResetCreditDetail(value: unknown): { expiresAt: number | null } | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const expiresAt = (value as Record<string, unknown>).expiresAt;
+
+  if (expiresAt === null) {
+    return { expiresAt: null };
+  }
+
+  return typeof expiresAt === "number" && Number.isFinite(expiresAt) ? { expiresAt } : null;
+}
+
+function isPresent<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 function parseWindow(value: unknown): UsageWindow | null {
