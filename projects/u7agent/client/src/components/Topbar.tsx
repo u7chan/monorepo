@@ -6,6 +6,7 @@ import { ActivityEntryButton, type ActivityEntryProps } from "./ActivityEntry";
 import { NotifyNote } from "./NotifyNote";
 import { NotifyBell } from "./NotifyBell";
 import { RuntimeAlert } from "./RuntimeAlert";
+import { ServeTunnelNoticeLine } from "./ServeTunnelNoticeLine";
 import { ServedAppGroup, type ServedAppProps } from "./ServedAppStatus";
 import { FolderIcon, MenuIcon } from "./icons";
 
@@ -103,6 +104,10 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav,
       </div>
       <RuntimeAlert runtimeStatus={runtimeStatus} />
       {serveError ? <NotifyNote text={serveError} /> : null}
+      {serve.tunnel.error ? <NotifyNote text={serve.tunnel.error} /> : null}
+      {serve.tunnel.notice ? (
+        <ServeTunnelNoticeLine notice={serve.tunnel.notice} onDismiss={serve.tunnel.onDismissNotice} />
+      ) : null}
       {notify.note ? <NotifyNote text={notify.note} onOpenSettings={notify.onOpenSettings} /> : null}
     </header>
   );

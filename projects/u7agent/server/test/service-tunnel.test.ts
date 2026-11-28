@@ -130,6 +130,7 @@ function setup(
     dns?: TunnelDnsLookup;
     sandboxConfigured?: boolean;
     now?: () => number;
+    statusError?: unknown;
   } = {},
 ) {
   const launcher = options.launcher ?? fakeLauncher({ ready: (handle) => handle.resolveReady("https://quick.test") });
@@ -140,7 +141,10 @@ function setup(
   const service = new ServeTunnelService({
     launcher: launcher.launcher,
     serve: {
-      runtimeStatus: async () => current,
+      runtimeStatus: async () => {
+        if (options.statusError !== undefined) throw options.statusError;
+        return current;
+      },
     },
     sandboxConfigured: options.sandboxConfigured ?? true,
     createGate: gateFactory.createGate,
@@ -305,6 +309,42 @@ test("DNS を確認できなければ 502 で片付け、URL を出さない", a
   assert.equal(launcher.handles[0]?.stops, 1);
   assert.equal(gates[0]?.closed, 1);
 });
+
+const START_FAILURES: [name: string, options: Parameters<typeof setup>[0], created: number][] = [
+  ["サービスの状態の確認", { statusError: new Error("connect ECONNREFUSED 192.0.2.10:4000") }, 0],
+  ["DNS の確認", { dns: async () => false }, 1],
+  [
+    "cloudflared の拒否",
+    { launcher: fakeLauncher({ ready: (handle) => handle.rejectReady(new CloudflaredLaunchError("rejected")) }) },
+    1,
+  ],
+];
+
+for (const [name, options, created] of START_FAILURES) {
+  test(`開始の失敗（${name}）は、応答の文言と lastEnded.message が同じ固定文言で、生の例外を載せず、作った子とゲートを片付ける`, async () => {
+    const { service, launcher, gates } = setup(options);
+    await assert.rejects(
+      service.start({ generation: "gen-1", ttlMinutes: 60 }),
+      (error: { statusCode?: number; message: string }) => {
+        assert.equal(error.statusCode, 502);
+        assert.equal(error.message, service.status().lastEnded?.message);
+        assert.equal(error.message.includes("192.0.2.10"), false);
+        return true;
+      },
+    );
+    assert.equal(service.status().state, "idle");
+    assert.equal(service.status().lastEnded?.reason, "failed");
+    const stoppedOnce = Array.from({ length: created }, () => 1);
+    assert.deepEqual(
+      launcher.handles.map((handle) => handle.stops),
+      stoppedOnce,
+    );
+    assert.deepEqual(
+      gates.map((gate) => gate.closed),
+      stoppedOnce,
+    );
+  });
+}
 
 test("starting 中の停止は開始を中断し、idle を返す", async () => {
   let releaseDns!: (value: boolean) => void;

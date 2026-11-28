@@ -220,9 +220,8 @@ export class ServeTunnelService implements ServeTunnelControl {
       let status: RuntimeServeStatus;
       try {
         status = await this.#serve.runtimeStatus({ fresh: true });
-      } catch (error) {
-        await this.#end(attempt, "failed", STATUS_FAILED_MESSAGE);
-        throw error;
+      } catch {
+        throw await this.#failStart(attempt, 502, STATUS_FAILED_MESSAGE);
       }
       if (attempt.aborted) return this.#abort(attempt);
       if (!status.reachable) {

@@ -49,9 +49,12 @@ const {
 const {
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
+  getServeTunnel,
   startRuntimeServe,
+  startServeTunnel,
   stopRuntimeDebugServe,
   stopRuntimeServe,
+  stopServeTunnel,
 } = await import("../src/api/runtime");
 const { browserVoiceInputPlatform } = await import("../src/lib/voiceInput/browser");
 const { getSessionHistory, updateSessionTitle, postMessage, summarizeSessionTitle } = createSpaceApi("default");
@@ -87,6 +90,47 @@ test("ランタイムのサービスAPIは会話IDなしで取得し、停止と
   );
   assert.deepEqual(await requests[1].json(), { generation: "gen-a" });
   assert.deepEqual(await requests[2].json(), { sessionId: "session-a", generation: "gen-a" });
+});
+
+test("一時共有のAPIは状態の取得・開始・停止の 3 本で、開始には確認した世代と期限を送る", async (t) => {
+  const requests: Request[] = [];
+  const idle = { available: true, unavailableReason: null, state: "idle", provider: "cloudflare-quick" };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json({ ...idle, active: null, lastEnded: null });
+  });
+  assert.equal((await getServeTunnel()).state, "idle");
+  await startServeTunnel({ generation: "gen-a", ttlMinutes: 60 });
+  await stopServeTunnel();
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname, new URL(request.url).search]),
+    [
+      ["GET", "/api/serve/tunnel", ""],
+      ["POST", "/api/serve/tunnel/start", ""],
+      ["POST", "/api/serve/tunnel/stop", ""],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { generation: "gen-a", ttlMinutes: 60 });
+});
+
+test("一時共有の開始が 409 / 502 で断られたら、サーバーの固定文言と HTTP status を保つ", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "サービスの状態が変わりました。最新の状態で確認し直してください" }, { status: 409 }),
+  );
+  await assert.rejects(startServeTunnel({ generation: "old", ttlMinutes: 15 }), {
+    message: "サービスの状態が変わりました。最新の状態で確認し直してください",
+    status: 409,
+  });
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      { error: "共有の作成が時間内に完了しませんでした。時間を置いてから再試行してください" },
+      { status: 502 },
+    ),
+  );
+  await assert.rejects(startServeTunnel({ generation: "gen-a", ttlMinutes: 180 }), {
+    message: "共有の作成が時間内に完了しませんでした。時間を置いてから再試行してください",
+    status: 502,
+  });
 });
 
 test("デバッグ用サービスのAPIは公開枠とは別のパスを使い、停止にはポートを送る", async (t) => {

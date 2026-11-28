@@ -5,6 +5,7 @@
 import type { RunStatus, ServeStatus, SessionSummary } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import { publicOrigin } from "./publicOrigin";
+import type { ServeShareCandidate } from "./serveTunnel";
 
 /**
  * サービスを開く URL。公開オリジン (TLS 終端の後ろでは scheme が変わる) があればそれを優先し、
@@ -70,6 +71,8 @@ export interface ServeView {
   canOpen: boolean;
   canStop: boolean;
   canStart: boolean;
+  /** この会話が起動したアプリだけ、一時共有を始められる (他の会話・起動元不明は設定 → ランタイムから) */
+  canShare: boolean;
   /** 状態の根拠 (バッジの title) */
   badgeTitle: string;
   /** singleColumn の読み上げ名 */
@@ -88,6 +91,7 @@ const NONE: ServeView = {
   canOpen: false,
   canStop: false,
   canStart: false,
+  canShare: false,
   badgeTitle: "",
   ariaLabel: "",
 };
@@ -110,6 +114,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
       canOpen: true,
       canStop: true,
       canStart: false,
+      canShare: true,
       badgeTitle: "この会話のサービスが公開されています",
       ariaLabel: "サービスは稼働中。メニューを開く",
     };
@@ -123,6 +128,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
       canOpen: false,
       canStop: false,
       canStart: true,
+      canShare: false,
       ownerTitle: status.owner.title,
       badgeTitle: "別の会話のサービスが公開されています",
       ariaLabel: "サービスは停止中。メニューを開く",
@@ -137,6 +143,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
       canOpen: false,
       canStop: true,
       canStart: true,
+      canShare: false,
       badgeTitle: "記録と一致しないプロセスが使用中です",
       ariaLabel: "サービスは停止中（起動元不明）。メニューを開く",
     };
@@ -150,11 +157,25 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
       canOpen: false,
       canStop: false,
       canStart: true,
+      canShare: false,
       badgeTitle: "この会話の作業ディレクトリには起動の実績があります",
       ariaLabel: "サービスを起動",
     };
   }
   return NONE;
+}
+
+/** チャットの入口が確認に出す対象。共有を始められるのは、この会話が起動したアプリだけ */
+export function servedAppShareCandidate(status: ServeStatus | null | undefined): ServeShareCandidate | null {
+  if (!status?.generation || !servedAppView(status).canShare) return null;
+  return {
+    generation: status.generation,
+    target: {
+      title: status.owner.title ?? null,
+      cwd: status.command?.cwd ?? null,
+      command: status.command?.command ?? null,
+    },
+  };
 }
 
 /** singleColumn のメニュー先頭に出す補足 (状態の根拠)。1 行に収める */
