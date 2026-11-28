@@ -39,6 +39,8 @@ RUN node /tmp/install-fd.mjs /usr/local/bin
 COPY scripts/install-cloudflared.mjs /tmp/installer/scripts/install-cloudflared.mjs
 # 配置先がエージェントの書き込み先かを見る判定は BFF と共有する (.ts は Node 26 の型ストリッピングで読む)
 COPY server/src/agent-write-roots.ts /tmp/installer/server/src/agent-write-roots.ts
+# ロックの持ち主の起動時刻を見る (pid の再利用を見分ける)
+COPY server/src/proc-stat.ts /tmp/installer/server/src/proc-stat.ts
 COPY package.json /tmp/installer/package.json
 RUN node /tmp/installer/scripts/install-cloudflared.mjs /usr/local/libexec/u7agent
 
