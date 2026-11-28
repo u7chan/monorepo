@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useRuntimeDebugServe } from "../../hooks/useRuntimeDebugServe";
 import { useRuntimeServe } from "../../hooks/useRuntimeServe";
+import { useServeTunnel } from "../../hooks/useServeTunnel";
 import { createRuntimeReloadGate, type RuntimeReloadGate } from "../../lib/runtimeEnvironment";
+import { runtimeShareCandidate, serveTunnelEntry } from "../../lib/serveTunnel";
 import type { Health } from "../../types";
 import { ReloadButton } from "../ReloadButton";
 import { RuntimeDebugServiceCard } from "../RuntimeDebugServiceCard";
 import { RuntimeServiceCard } from "../RuntimeServiceCard";
+import { ServeShareDialog } from "../ServeShareDialog";
 import { RuntimeTabLayout, type RuntimeTabProps } from "./RuntimeTabLayout";
 
 /**
- * 設定 → ランタイムの「サービス」面。公開中のサービスの確認・停止、公開 URL を組む health、
+ * 設定 → ランタイムの「サービス」面。公開中のサービスの確認・停止・一時共有、公開 URL を組む health、
  * デバッグ用 (18000 帯) の一覧・強制停止を持つ。取得は別系統に分け、デバッグの失敗で壊さない。
  */
 export function ServiceTab({
@@ -24,6 +27,8 @@ export function ServiceTab({
 }) {
   const service = useRuntimeServe();
   const debug = useRuntimeDebugServe();
+  const tunnel = useServeTunnel();
+  const [shareOpen, setShareOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const gateRef = useRef<RuntimeReloadGate | null>(null);
   if (gateRef.current === null) gateRef.current = createRuntimeReloadGate();
@@ -33,7 +38,7 @@ export function ServiceTab({
   const reload = async (): Promise<void> => {
     const isCurrent = gate.begin();
     setRefreshing(true);
-    await Promise.allSettled([onRefreshHealth(isCurrent), service.refresh(), debug.refresh()]);
+    await Promise.allSettled([onRefreshHealth(isCurrent), service.refresh(), debug.refresh(), tunnel.reload()]);
     if (isCurrent()) setRefreshing(false);
   };
 
@@ -53,6 +58,7 @@ export function ServiceTab({
             hostname={location.hostname}
             port={health?.previewPort}
             serviceOrigin={health?.serviceOrigin}
+            tunnel={serveTunnelEntry(tunnel, () => setShareOpen(true))}
             onStop={() => void service.stop()}
             onOpenSession={onOpenSession}
           />
@@ -63,6 +69,13 @@ export function ServiceTab({
           />
         </div>
       </div>
+      {shareOpen ? (
+        <ServeShareDialog
+          tunnel={tunnel}
+          candidate={runtimeShareCandidate(service.status)}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
     </RuntimeTabLayout>
   );
 }

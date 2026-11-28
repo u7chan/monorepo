@@ -1,14 +1,77 @@
 import { cn } from "../lib/cn";
 import { sessionEntryHref } from "../lib/route";
 import type { RuntimeServeState } from "../lib/runtimeServe";
+import { runtimeShareCandidate, type ServeTunnelEntry } from "../lib/serveTunnel";
 import { servedAppUrl } from "../lib/servedApp";
-import { ExternalLinkIcon, StopIcon } from "./icons";
+import { ServeTunnelNoticeLine } from "./ServeTunnelNoticeLine";
+import { ExternalLinkIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, StopIcon } from "./icons";
+
+/**
+ * 一時共有の区画。サービスの到達可否や取得の失敗とは独立に置き、共有中の表示と停止を消さない
+ * (止めた途端に消えると、期限まで続く共有の消し忘れを防げない)。
+ */
+function RuntimeShareSection({ tunnel, canShare }: { tunnel: ServeTunnelEntry; canShare: boolean }) {
+  const { view } = tunnel;
+  if (!view.sharing && !canShare && tunnel.notice === null && tunnel.error === undefined) return null;
+  const unavailable = view.phase === "unavailable";
+  return (
+    <div role="group" aria-label="一時共有" className="grid gap-2 border-t border-line pt-2">
+      <h4 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">一時共有</h4>
+      {tunnel.notice === null ? null : (
+        <ServeTunnelNoticeLine notice={tunnel.notice} onDismiss={tunnel.onDismissNotice} />
+      )}
+      {view.sharing ? (
+        <p className="flex items-center gap-1.5 text-xs text-ink">
+          {view.phase === "starting" ? <RunSpinnerIcon /> : <span aria-hidden="true" className="dot dot-accent" />}
+          {view.badge}
+        </p>
+      ) : null}
+      {view.stale ? (
+        <p role="status" className="text-2xs text-warn">
+          最新の状態を取得できていません。表示は最後に確認した内容です。
+        </p>
+      ) : null}
+      {view.sharing || canShare ? (
+        // 先頭の button は始める入口と共有の画面で同じ要素にする (ダイアログを閉じた焦点の戻り先を残す)
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-quiet" onClick={tunnel.onOpen} disabled={!view.sharing && unavailable}>
+            {view.sharing ? <QrCodeIcon /> : <ShareIcon />}
+            {view.sharing ? "共有の画面を開く" : "一時共有…"}
+          </button>
+          {view.sharing ? (
+            <button
+              type="button"
+              className="btn-quiet border-danger/45 text-danger-text"
+              onClick={tunnel.onStop}
+              disabled={tunnel.stopping}
+            >
+              <StopIcon />
+              {tunnel.stopping ? "停止しています…" : view.stopLabel}
+            </button>
+          ) : (
+            <p className="min-w-0 text-2xs break-words text-ink-muted">
+              {unavailable
+                ? (view.unavailableReason ?? "一時共有を使えません。")
+                : "動いているサービスを、期限つきの URL で外へ共有します。"}
+            </p>
+          )}
+        </div>
+      ) : null}
+      {tunnel.error === undefined ? null : (
+        <p role="alert" className="text-xs break-all text-danger-text">
+          {tunnel.error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function RuntimeServiceCard({
   state,
   hostname,
   port,
   serviceOrigin,
+  tunnel,
   onStop,
   onOpenSession,
 }: {
@@ -17,11 +80,15 @@ export function RuntimeServiceCard({
   port?: number;
   /** ブラウザから見たサービス オリジン (health の serviceOrigin)。設定済みならポートより優先する */
   serviceOrigin?: string;
+  /** 一時共有。サービスの状態とは独立に出す */
+  tunnel: ServeTunnelEntry;
   onStop: () => void;
   onOpenSession?: (sessionId: string, spaceId?: string) => void;
 }) {
   const { status, loading, failed, stopping, error } = state;
   const href = status?.reachable ? servedAppUrl(hostname, port, serviceOrigin) : undefined;
+  // 誰が起動したアプリでも対象にする。サービスの操作中は世代が動くので、落ち着くまで始めさせない
+  const canShare = !failed && !stopping && state.starting === null && runtimeShareCandidate(status) !== null;
   return (
     <section className="grid gap-2 rounded-lg border border-line bg-soft p-3" aria-label="公開中のサービス">
       <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">公開中のサービス</h3>
@@ -120,6 +187,7 @@ export function RuntimeServiceCard({
           サービスの操作に失敗しました: {error}
         </p>
       ) : null}
+      <RuntimeShareSection tunnel={tunnel} canShare={canShare} />
       <p className="text-2xs leading-relaxed text-ink-muted">
         公開枠は全会話で共有の1本です。状態は4秒ごとに更新します。稼働中はポートへの接続可否を示し、ページの正常動作を保証するものではありません。
       </p>

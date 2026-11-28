@@ -7,6 +7,8 @@ import type {
   RuntimeInUseResponse,
   RuntimeModelsResponse,
   RuntimeServeStatus,
+  ServeTunnelStartBody,
+  ServeTunnelStatus,
 } from "../types";
 
 export const getHealth = async (): Promise<Health> => {
@@ -40,6 +42,18 @@ export const stopRuntimeServe = (input: { generation: string }, signal?: AbortSi
 /** `generation` は確認を表示した時点の値で、実行時に変わっていれば 409。UI は状態を取り直して確認し直す */
 export const startRuntimeServe = (input: { sessionId: string; generation: string | null }, signal?: AbortSignal) =>
   read<RuntimeServeStatus>(client.api.serve.runtime.start.$post({ json: input }, { init: { signal } }));
+
+/** 一時共有の状態。全体で 1 本で、サービスの状態とは独立に続く (ガード無しの GET) */
+export const getServeTunnel = (signal?: AbortSignal) =>
+  read<ServeTunnelStatus>(client.api.serve.tunnel.$get({}, { init: { signal } }));
+
+/** `generation` は確認を表示した時点の値。実行時に変わっていれば 409 で、UI は確認をやり直す */
+export const startServeTunnel = (input: ServeTunnelStartBody, signal?: AbortSignal) =>
+  read<ServeTunnelStatus>(client.api.serve.tunnel.start.$post({ json: input }, { init: { signal } }));
+
+/** 冪等。共有が無くても `idle` を返し、`starting` 中なら開始を中断する */
+export const stopServeTunnel = (signal?: AbortSignal) =>
+  read<ServeTunnelStatus>(client.api.serve.tunnel.stop.$post({}, { init: { signal } }));
 
 export const getRuntimeDebugServeStatus = (signal?: AbortSignal) =>
   read<RuntimeDebugServeStatus>(client.api.serve.debug.status.$get({}, { init: { signal } }));

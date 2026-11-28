@@ -8,6 +8,7 @@ import { NotifyBell } from "./NotifyBell";
 import { CloseIcon, ExternalLinkIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
+import { ServeTunnelNoticeLine } from "./ServeTunnelNoticeLine";
 import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
 
 export type SingleColumnBarProps = {
@@ -114,6 +115,14 @@ export function SingleColumnBar({
         </div>
       ) : null}
       {serveError ? <NotifyNote text={serveError} className="mx-3 mb-2" /> : null}
+      {serve.tunnel.error ? <NotifyNote text={serve.tunnel.error} className="mx-3 mb-2" /> : null}
+      {serve.tunnel.notice ? (
+        <ServeTunnelNoticeLine
+          notice={serve.tunnel.notice}
+          onDismiss={serve.tunnel.onDismissNotice}
+          className="mx-3 mb-2"
+        />
+      ) : null}
       {openRowHref ? (
         // 押した瞬間に開く (押下の文脈で新規タブを開く)。開く側が行の左を占め、✕ は右端の兄弟にする
         <div

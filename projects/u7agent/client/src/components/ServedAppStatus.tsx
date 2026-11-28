@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, type 
 import { usePopoverShell, type PopoverPlaceInput } from "../hooks/usePopoverShell";
 import { cn } from "../lib/cn";
 import { rowMenuPlacement, ROW_MENU_MARGIN, type RowMenuDescriptionKind } from "../lib/rowMenu";
+import type { ServeTunnelEntry } from "../lib/serveTunnel";
 import {
   openServedApp,
   servedAppMenuSeparators,
@@ -14,7 +15,7 @@ import {
 } from "../lib/servedApp";
 import type { ServeStatus } from "../types";
 import { MenuItem } from "./MenuItem";
-import { ExternalLinkIcon, PowerIcon, RunSpinnerIcon, StopIcon } from "./icons";
+import { ExternalLinkIcon, PowerIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, StopIcon } from "./icons";
 
 export type ServedAppProps = {
   /** health の previewPort (ブラウザから見たポート)。serviceOrigin も無ければリンクを出さない */
@@ -23,6 +24,8 @@ export type ServedAppProps = {
   serviceOrigin?: string;
   /** 閲覧中の会話から見た状態。未取得 (初回 / 会話切替直後 / 取得失敗) は undefined */
   status?: ServeStatus | null;
+  /** 一時共有。全会話で 1 本の全体の状態で、サービスの状態や取得の失敗とは独立に出す */
+  tunnel: ServeTunnelEntry;
   /** 取得に失敗した。リンクも操作も出さない (到達不可と区別する) */
   failed: boolean;
   /** 起動の確認待ち (期限つきプローブが終わるまでの遷移状態) */
@@ -81,7 +84,58 @@ function StartingBadge() {
 }
 
 /**
- * desktop のサービスのグループ。[状態バッジ] [サービス] [停止/起動] ｜ を 1 つの単位にして、
+ * 一時共有の表示と操作。共有中は「共有中・残り N 分」(押すとダイアログ) と停止を、サービスの状態に関係なく
+ * 出す。共有中でなければ、この会話が起動したアプリ (`canShare`) のときだけ始める入口を出す。
+ */
+function ServeShareControls({ canShare, tunnel }: { canShare: boolean; tunnel: ServeTunnelEntry }) {
+  const { view } = tunnel;
+  if (view.sharing) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={tunnel.onOpen}
+          aria-haspopup="dialog"
+          title="QR・URL・残り時間を開きます"
+          className="btn-quiet shrink-0 border-accent/50 text-accent-text"
+        >
+          {view.phase === "starting" ? <RunSpinnerIcon /> : <ShareIcon />}
+          {view.badge}
+        </button>
+        <button
+          type="button"
+          onClick={tunnel.onStop}
+          disabled={tunnel.stopping}
+          title={view.phase === "starting" ? "共有の準備を中断します" : "共有を止めて URL を無効にします"}
+          className="btn-quiet shrink-0 border-danger/45 text-danger-text"
+        >
+          <StopIcon />
+          {view.stopLabel}
+        </button>
+      </>
+    );
+  }
+  if (!canShare) return null;
+  const unavailable = view.phase === "unavailable";
+  return (
+    <button
+      type="button"
+      onClick={tunnel.onOpen}
+      disabled={unavailable}
+      aria-haspopup="dialog"
+      aria-label={unavailable ? "一時共有（利用できません）" : "一時共有を開始"}
+      title={
+        unavailable ? (view.unavailableReason ?? "一時共有を使えません") : "このサービスを期限つきの URL で共有します"
+      }
+      className="icon-button shrink-0"
+    >
+      <ShareIcon />
+    </button>
+  );
+}
+
+/**
+ * desktop のサービスのグループ。[状態バッジ] [サービス] [停止/起動] [共有] ｜ を 1 つの単位にして、
  * 右寄せクラスタの左端に置く (出ても通知・作業フォルダの位置が動かない)。区切り線も一緒に出し入れする。
  */
 export function ServedAppGroup({
@@ -90,6 +144,7 @@ export function ServedAppGroup({
   status,
   failed,
   starting,
+  tunnel,
   focusRequest,
   onFocusHandled,
   onStart,
@@ -105,53 +160,58 @@ export function ServedAppGroup({
     onFocusHandled?.();
     linkRef.current?.focus();
   }, [focusRequest, onFocusHandled]);
-  if (!failed && starting) {
-    return (
-      <span className="inline-flex items-center gap-2">
-        <StartingBadge />
-        <button type="button" onClick={onCancel} title="起動の確認をやめます" className="btn-quiet shrink-0">
-          キャンセル
-        </button>
-        <ServeSeparator />
-      </span>
-    );
-  }
-  if (failed || view.kind === "none") return null;
-  const href = view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
+  const serviceStarting = !failed && starting;
+  const serviceShown = !failed && !starting && view.kind !== "none";
+  // 共有中の表示と停止は、サービスが止まっても・状態を取得できなくても消さない (消し忘れを防ぐ)
+  if (!serviceStarting && !serviceShown && !tunnel.view.sharing) return null;
+  const href = serviceShown && view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
   return (
     <span className="inline-flex items-center gap-2">
-      <ServeBadge view={view} />
-      {href ? (
-        <a
-          ref={linkRef}
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          aria-label="サービスを開く"
-          title="この会話のサービスを別タブで開きます"
-          className="btn-quiet shrink-0"
-        >
-          <ExternalLinkIcon />
-          サービス
-        </a>
+      {serviceStarting ? (
+        <>
+          <StartingBadge />
+          <button type="button" onClick={onCancel} title="起動の確認をやめます" className="btn-quiet shrink-0">
+            キャンセル
+          </button>
+        </>
       ) : null}
-      {view.canStop ? (
-        <button
-          type="button"
-          onClick={onStop}
-          title={view.kind === "unknown" ? "いま公開中のプロセスを停止します" : "この会話のサービスを停止します"}
-          className={cn("btn-quiet shrink-0", "border-danger/45 text-danger-text")}
-        >
-          <StopIcon />
-          停止
-        </button>
+      {serviceShown ? (
+        <>
+          <ServeBadge view={view} />
+          {href ? (
+            <a
+              ref={linkRef}
+              href={href}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label="サービスを開く"
+              title="この会話のサービスを別タブで開きます"
+              className="btn-quiet shrink-0"
+            >
+              <ExternalLinkIcon />
+              サービス
+            </a>
+          ) : null}
+          {view.canStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              title={view.kind === "unknown" ? "いま公開中のプロセスを停止します" : "この会話のサービスを停止します"}
+              className={cn("btn-quiet shrink-0", "border-danger/45 text-danger-text")}
+            >
+              <StopIcon />
+              停止
+            </button>
+          ) : null}
+          {view.canStart ? (
+            <button type="button" onClick={onStart} title={servedAppReplaceHint(view)} className="btn-quiet shrink-0">
+              <PowerIcon />
+              起動
+            </button>
+          ) : null}
+        </>
       ) : null}
-      {view.canStart ? (
-        <button type="button" onClick={onStart} title={servedAppReplaceHint(view)} className="btn-quiet shrink-0">
-          <PowerIcon />
-          起動
-        </button>
-      ) : null}
+      <ServeShareControls canShare={serviceShown && view.canShare} tunnel={tunnel} />
       <ServeSeparator />
     </span>
   );
@@ -169,11 +229,14 @@ export function ServedAppIndicator({
   status,
   failed,
   starting,
+  tunnel,
   onStart,
   onStop,
   onCancel,
 }: ServedAppProps) {
   const view = servedAppView(status);
+  const share = tunnel.view;
+  const serviceShown = !failed && (starting || view.kind !== "none");
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
 
@@ -195,8 +258,9 @@ export function ServedAppIndicator({
     close();
   }, [close, starting]);
 
-  if (failed || (!starting && view.kind === "none")) return null;
-  if (!starting && view.kind === "stopped") {
+  // 共有中の表示と停止は、サービスが止まっても・状態を取得できなくても消さない (消し忘れを防ぐ)
+  if (!serviceShown && !share.sharing) return null;
+  if (!starting && serviceShown && !share.sharing && view.kind === "stopped") {
     return (
       <button
         type="button"
@@ -210,66 +274,118 @@ export function ServedAppIndicator({
     );
   }
 
-  const tone = starting ? "serve-icon-accent" : ICON_TONE[view.tone];
-  const href = view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
-  const items: Array<{
+  const tone = starting || share.sharing ? "serve-icon-accent" : ICON_TONE[view.tone];
+  const href = serviceShown && view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
+  const shareUnavailable = share.phase === "unavailable";
+  type MenuEntry = {
     key: string;
     icon: ReactNode;
     label: string;
     description?: string;
     descriptionKind?: RowMenuDescriptionKind;
     danger?: boolean;
+    disabled?: boolean;
     run: () => void;
-  }> = starting
+  };
+  const serviceItems: MenuEntry[] = !serviceShown
+    ? []
+    : starting
+      ? [
+          {
+            key: "cancel",
+            icon: <RunSpinnerIcon />,
+            label: "起動をキャンセル",
+            description: "8080 に到達できるかを確認しています",
+            descriptionKind: "note" as const,
+            run: onCancel,
+          },
+        ]
+      : [
+          ...(href
+            ? [
+                {
+                  key: "open",
+                  icon: <ExternalLinkIcon />,
+                  label: "サービスを開く",
+                  run: () => openServedApp(href),
+                },
+              ]
+            : []),
+          ...(view.canStop
+            ? [
+                {
+                  key: "stop",
+                  icon: <StopIcon />,
+                  label: "停止",
+                  description: view.kind === "unknown" ? "いま公開中のプロセスを停止" : undefined,
+                  // 何を止めるのかは実行前に効く (置き換えの可否が変わる)
+                  descriptionKind: "disclosure" as const,
+                  danger: true,
+                  run: onStop,
+                },
+              ]
+            : []),
+          ...(view.canStart
+            ? [
+                {
+                  key: "start",
+                  icon: <PowerIcon />,
+                  label: "起動",
+                  description: servedAppReplaceHint(view),
+                  descriptionKind: "disclosure" as const,
+                  run: onStart,
+                },
+              ]
+            : []),
+        ];
+  const shareItems: MenuEntry[] = share.sharing
     ? [
         {
-          key: "cancel",
-          icon: <RunSpinnerIcon />,
-          label: "起動をキャンセル",
-          description: "8080 に到達できるかを確認しています",
-          descriptionKind: "note" as const,
-          run: onCancel,
+          key: "share-open",
+          icon: <QrCodeIcon />,
+          label: "共有の画面を開く",
+          description: "QR・URL・残り時間",
+          descriptionKind: "disclosure" as const,
+          run: tunnel.onOpen,
+        },
+        {
+          key: "share-stop",
+          icon: <StopIcon />,
+          label: share.stopLabel,
+          descriptionKind: "disclosure" as const,
+          danger: true,
+          disabled: tunnel.stopping,
+          run: tunnel.onStop,
         },
       ]
-    : [
-        ...(href
-          ? [
-              {
-                key: "open",
-                icon: <ExternalLinkIcon />,
-                label: "サービスを開く",
-                run: () => openServedApp(href),
-              },
-            ]
-          : []),
-        ...(view.canStop
-          ? [
-              {
-                key: "stop",
-                icon: <StopIcon />,
-                label: "停止",
-                description: view.kind === "unknown" ? "いま公開中のプロセスを停止" : undefined,
-                // 何を止めるのかは実行前に効く (置き換えの可否が変わる)
-                descriptionKind: "disclosure" as const,
-                danger: true,
-                run: onStop,
-              },
-            ]
-          : []),
-        ...(view.canStart
-          ? [
-              {
-                key: "start",
-                icon: <PowerIcon />,
-                label: "起動",
-                description: servedAppReplaceHint(view),
-                descriptionKind: "disclosure" as const,
-                run: onStart,
-              },
-            ]
-          : []),
-      ];
+    : serviceShown && view.canShare
+      ? [
+          {
+            key: "share",
+            icon: <ShareIcon />,
+            label: "一時共有…",
+            description: shareUnavailable
+              ? (share.unavailableReason ?? "一時共有を使えません")
+              : "期限つきの URL で外へ共有",
+            descriptionKind: "disclosure" as const,
+            disabled: shareUnavailable,
+            run: tunnel.onOpen,
+          },
+        ]
+      : [];
+  const items = [...serviceItems, ...shareItems];
   const separators = servedAppMenuSeparators(items);
+  const mark = share.sharing ? (
+    share.phase === "starting" ? (
+      <RunSpinnerIcon />
+    ) : (
+      <ShareIcon />
+    )
+  ) : starting ? (
+    <RunSpinnerIcon />
+  ) : (
+    <ServeMark view={view} />
+  );
 
   return (
     <>
@@ -278,12 +394,18 @@ export function ServedAppIndicator({
         {...triggerProps}
         id={triggerId}
         aria-haspopup="menu"
-        aria-label={starting ? "サービスは起動中。メニューを開く" : view.ariaLabel}
+        aria-label={
+          share.sharing
+            ? `${share.badge}。メニューを開く`
+            : starting
+              ? "サービスは起動中。メニューを開く"
+              : view.ariaLabel
+        }
         popoverTarget={menuId}
         popoverTargetAction="toggle"
         className={cn("icon-button shrink-0", tone)}
       >
-        {starting ? <RunSpinnerIcon /> : <ServeMark view={view} />}
+        {mark}
       </button>
       <div
         {...popoverProps}
@@ -294,14 +416,24 @@ export function ServedAppIndicator({
         className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:min-w-56 singleColumn:p-2"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">
-          <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
-            {starting ? <RunSpinnerIcon /> : <ServeMark view={view} />}
-            {starting ? "起動中…" : view.label}
-          </span>
-          {/* cwd · コマンドは桁数が決まらないため折り返す (1 行に固定すると cwd だけで埋まり、command の頭だけになる) */}
-          <span className="text-2xs break-words text-ink-muted singleColumn:text-1xs">
-            {starting ? "8080 に到達できるかを確認しています" : servedAppMenuSub(view)}
-          </span>
+          {serviceShown ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
+                {starting ? <RunSpinnerIcon /> : <ServeMark view={view} />}
+                {starting ? "起動中…" : view.label}
+              </span>
+              {/* cwd · コマンドは桁数が決まらないため折り返す (1 行に固定すると cwd だけで埋まり、command の頭だけになる) */}
+              <span className="text-2xs break-words text-ink-muted singleColumn:text-1xs">
+                {starting ? "8080 に到達できるかを確認しています" : servedAppMenuSub(view)}
+              </span>
+            </>
+          ) : null}
+          {share.sharing ? (
+            <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
+              {share.phase === "starting" ? <RunSpinnerIcon /> : <ShareIcon />}
+              {share.badge}
+            </span>
+          ) : null}
         </div>
         <div aria-hidden="true" className="mx-1 mb-1 h-px bg-line" />
         {items.map((item, index) => (
@@ -317,6 +449,7 @@ export function ServedAppIndicator({
               description={item.description}
               descriptionKind={item.descriptionKind ?? "disclosure"}
               danger={item.danger}
+              disabled={item.disabled}
               onClick={() => {
                 close();
                 item.run();

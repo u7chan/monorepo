@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RuntimeServiceCard } from "../src/components/RuntimeServiceCard";
 import { INITIAL_RUNTIME_SERVE_STATE, type RuntimeServeState } from "../src/lib/runtimeServe";
+import { tunnelEntry } from "./serve-fixture";
 
 function render(state: Partial<RuntimeServeState>, port: number | undefined = 8016) {
   return renderToStaticMarkup(
@@ -11,6 +12,7 @@ function render(state: Partial<RuntimeServeState>, port: number | undefined = 80
       state: { ...INITIAL_RUNTIME_SERVE_STATE, loading: false, ...state },
       hostname: "localhost",
       port,
+      tunnel: tunnelEntry(),
       onStop: () => {},
     }),
   );
@@ -61,6 +63,7 @@ test("公開ポートが不明ならリンクを作らず、停止確認中は�
     createElement(RuntimeServiceCard, {
       state: { ...INITIAL_RUNTIME_SERVE_STATE, loading: false, status: running, stopping: true },
       hostname: "localhost",
+      tunnel: tunnelEntry(),
       onStop: () => {},
     }),
   );

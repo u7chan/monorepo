@@ -10,6 +10,7 @@ import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
 import { NavSheet } from "./components/NavSheet";
 import { ProjectDialog } from "./components/ProjectDialog";
+import { ServeShareDialog } from "./components/ServeShareDialog";
 import { SettingsScreen } from "./components/SettingsScreen";
 import type { SettingsPageProps } from "./components/SettingsPageLayout";
 import { Sidebar } from "./components/Sidebar";
@@ -32,6 +33,7 @@ import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSessionDialogs } from "./hooks/useSessionDialogs";
 import { useSessionFilesFace } from "./hooks/useSessionFilesFace";
+import { useServeTunnel } from "./hooks/useServeTunnel";
 import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
 import { useSuggestionChip } from "./hooks/useSuggestionChip";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
@@ -61,7 +63,14 @@ import {
 import { canShareSessionRoot, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { sessionsInSpace } from "./lib/spaceSessions";
-import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
+import { serveTunnelEntry } from "./lib/serveTunnel";
+import {
+  servedAppBusyKind,
+  servedAppFocusRequest,
+  servedAppShareCandidate,
+  servedAppStartConfirm,
+  servedAppView,
+} from "./lib/servedApp";
 import { workdirBusyKind } from "./lib/sessionBusy";
 import { shareRunBlockedReason } from "./lib/sharedContents";
 import { handoffAgentChoices, sessionHandoffDialogText, type HandoffNote } from "./lib/sessionHandoff";
@@ -384,6 +393,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
+  // 一時共有は全会話で 1 本の全体の状態。サービスの状態とは独立に、会話を開いている間 4 秒で取る
+  const tunnel = useServeTunnel();
+  const [shareOpen, setShareOpen] = useState(false);
+  const openShare = useCallback(() => setShareOpen(true), []);
   // desktop の「サービス」リンクへ焦点を移す 1 ショット要求。立つのはこのタブの起動が成功したときだけ
   const [serveFocusRequest, setServeFocusRequest] = useState(false);
   const ackServeFocus = useCallback(() => setServeFocusRequest(false), []);
@@ -422,6 +435,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     port: app.health?.previewPort,
     serviceOrigin: app.health?.serviceOrigin,
     status: serve.status,
+    tunnel: serveTunnelEntry(tunnel, openShare),
     failed: serve.failed,
     starting: serve.starting,
     error: serve.error,
@@ -908,6 +922,13 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない)。
           閉じるのも NavSheet 側 (退場アニメの完了 → dialog の close) なので、App は閉じる要求を持たない */}
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
+      {shareOpen ? (
+        <ServeShareDialog
+          tunnel={tunnel}
+          candidate={servedAppShareCandidate(serve.status)}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
       {dialogs.projectOpen ? (
         <ProjectDialog singleColumn={singleColumn} onClose={dialogs.closeProject} onCreate={dialogs.createProject} />
       ) : null}
