@@ -1,8 +1,9 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { getServeTunnel, startServeTunnel, stopServeTunnel } from "../api/runtime";
 import {
   createServeTunnelController,
   createServeTunnelNotices,
+  createServeTunnelReloadGroup,
   INITIAL_SERVE_TUNNEL_STATE,
   type ServeTunnelHandle,
   type ServeTunnelStartResult,
@@ -13,6 +14,7 @@ import { useRuntimePolling } from "./useRuntimePolling";
 
 /** 画面の生存期間で 1 つだけ持つ。App はスペース切替で作り直され、入口も 2 か所あるため、通知を state に置かない */
 const pageNotices = createServeTunnelNotices();
+const pageReload = createServeTunnelReloadGroup();
 
 const createController = (_confirm: unknown, onChange: (state: ServeTunnelState) => void) =>
   createServeTunnelController({
@@ -40,8 +42,9 @@ export function useServeTunnel(): ServeTunnelHandle {
   const stop = useCallback(async () => {
     await controller.current?.stop();
   }, [controller]);
-  const reload = useCallback(async () => {
+  const resume = useCallback(async () => {
     await controller.current?.refresh({ force: true });
   }, [controller]);
-  return { state, notice, start, stop, reload, dismissNotice: pageNotices.dismiss };
+  useEffect(() => pageReload.join(resume), [resume]);
+  return { state, notice, start, stop, reload: pageReload.reload, dismissNotice: pageNotices.dismiss };
 }

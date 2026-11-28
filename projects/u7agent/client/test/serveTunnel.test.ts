@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   createServeTunnelController,
   createServeTunnelNotices,
+  createServeTunnelReloadGroup,
   DEFAULT_SERVE_TUNNEL_TTL,
   INITIAL_SERVE_TUNNEL_STATE,
   isShareConfirmationStale,
@@ -553,6 +554,39 @@ test("コントローラー: 利用不可が確定していて共有も無い間
   await live.controller.refresh();
   await live.controller.refresh();
   assert.equal(live.calls.get, 2);
+});
+
+test("再読み込みは mount 中の全部の取り口を再開し、離れた取り口へは届けず、1 つの失敗で止まらない", async () => {
+  const unavailable = () => tunnelStatus({ available: false, unavailableReason: "利用できません" });
+  const reads = { chat: 0, runtime: 0 };
+  const chat = setup({
+    getStatus: async () => {
+      reads.chat += 1;
+      return unavailable();
+    },
+  });
+  const runtime = setup({
+    getStatus: async () => {
+      reads.runtime += 1;
+      return unavailable();
+    },
+  });
+  await chat.controller.refresh();
+  await runtime.controller.refresh();
+  await chat.controller.refresh();
+  await runtime.controller.refresh();
+  assert.deepEqual(reads, { chat: 1, runtime: 1 }, "どちらも利用不可が確定して、周期の取得を省いている");
+
+  const group = createServeTunnelReloadGroup();
+  const leaveChat = group.join(() => chat.controller.refresh({ force: true }));
+  group.join(() => Promise.reject(new Error("取り口の失敗")));
+  group.join(() => runtime.controller.refresh({ force: true }));
+  await group.reload();
+  assert.deepEqual(reads, { chat: 2, runtime: 2 }, "設定 → ランタイムの再読み込み 1 回が、チャットの取り口も再開する");
+
+  leaveChat();
+  await group.reload();
+  assert.deepEqual(reads, { chat: 2, runtime: 3 }, "画面を離れた取り口へは届けない");
 });
 
 test("コントローラー: 適用した状態を終了の通知の台帳へ渡す", async () => {

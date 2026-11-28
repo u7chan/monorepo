@@ -199,6 +199,27 @@ export function shouldSkipServeTunnelFetch(status: ServeTunnelStatus | null): bo
   return status !== null && !status.available && status.state === "idle";
 }
 
+export interface ServeTunnelReloadGroup {
+  join: (resume: () => Promise<void>) => () => void;
+  reload: () => Promise<void>;
+}
+
+/** 取り口はチャットと設定 → ランタイムで別々に持つので、再読み込みの 1 回で mount 中の全部を再開する */
+export function createServeTunnelReloadGroup(): ServeTunnelReloadGroup {
+  const members = new Set<() => Promise<void>>();
+  return {
+    join(resume) {
+      members.add(resume);
+      return () => {
+        members.delete(resume);
+      };
+    },
+    async reload() {
+      await Promise.allSettled([...members].map((resume) => resume()));
+    },
+  };
+}
+
 /**
  * 開始 / 停止の応答は状態として適用し、先に発行した取得の遅い応答で上書きしない。開始の最中の停止は
  * 開始を中断するので、その開始の応答は適用せず、中断を失敗として見せない。

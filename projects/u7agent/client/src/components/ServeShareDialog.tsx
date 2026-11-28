@@ -57,10 +57,11 @@ export function ServeShareDialog({ tunnel, candidate, onClose }: ServeShareDialo
   const [confirmed, setConfirmed] = useState(candidate);
   const [failure, setFailure] = useState<string | undefined>(undefined);
 
-  // 主操作は取り消しにくい公開なので、開いたときの Enter で確定させない側に焦点を置く
+  // 主操作は取り消しにくい公開なので、開いたときと共有の有無が変わったとき (外からの終了を含む) は、
+  // 押しっぱなしの Enter が開始に届かないよう、確定させない側に焦点を置く
   useEffect(() => {
     closeRef.current?.focus();
-  }, []);
+  }, [view.sharing]);
 
   // 共有が始まったら、前の開始の失敗は古い。共有が終わって確認へ戻ったときに出し直さない
   useEffect(() => {
@@ -209,8 +210,10 @@ export function ServeShareDialog({ tunnel, candidate, onClose }: ServeShareDialo
         >
           {confirming ? "キャンセル" : "閉じる"}
         </button>
+        {/* key で要素を分ける: 使い回すと、停止に置いた焦点がそのまま開始へ移り、Enter で公開してしまう */}
         {confirming ? (
           <button
+            key="start"
             type="button"
             onClick={() => void start()}
             disabled={!canStart}
@@ -221,6 +224,7 @@ export function ServeShareDialog({ tunnel, candidate, onClose }: ServeShareDialo
           </button>
         ) : (
           <button
+            key="stop"
             type="button"
             onClick={() => void tunnel.stop()}
             disabled={tunnel.state.stopping}
