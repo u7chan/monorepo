@@ -22,6 +22,7 @@ function source(overrides: Partial<UsageSource> = {}): UsageSource {
     ],
     notes: [],
     resetCredits: null,
+    claudeResetCredits: null,
     trends: [],
     ...overrides,
   };

@@ -1,6 +1,9 @@
 import {
+  deleteClaudeResetCredits,
   deleteProviderState,
   loadProviderUsage,
+  saveClaudeResetCredits,
+  saveClaudeResetCreditsError,
   saveProviderError,
   saveProviderSnapshot,
   type DatabaseHandle,
@@ -9,6 +12,7 @@ import { CLAUDE_PROVIDER } from "../providers";
 import { CLAUDE_REFRESH_INTERVAL_MS, fetchClaudeUsage } from "../providers/claude";
 import { ProviderError, type ProviderErrorCode } from "../providers/types";
 import type { ClaudeCli } from "./cli";
+import { requestClaudeResetCredits, type ClaudeResetCreditsRead } from "./reset-credits";
 
 /** 手動更新を続けて押したときに、CLI の起動を重ねないための間隔。 */
 export const CLAUDE_MANUAL_COOLDOWN_MS = 60 * 1000;
@@ -24,9 +28,16 @@ export type ClaudeRefreshResult =
   | { state: "skipped"; reason: "fresh" | "cooldown" | "logout" }
   | { state: "failed"; error: ProviderErrorCode };
 
+export type ClaudeResetCreditsResult =
+  | { state: "refreshed" }
+  | { state: "failed"; error: ProviderErrorCode }
+  | { state: "skipped"; reason: "logout" };
+
 export type ClaudeUsageService = {
   refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
-  /** 公式 CLI でログアウトし、snapshot と error を消す。成功したら true。 */
+  /** 手動のときだけリセット枠を読む。通常の refresh からは呼ばない。 */
+  resetCredits: () => Promise<ClaudeResetCreditsResult>;
+  /** 公式 CLI でログアウトし、snapshot・error・リセット枠を消す。成功したら true。 */
   logout: () => Promise<boolean>;
 };
 
@@ -37,6 +48,9 @@ export type ClaudeUsageService = {
 export function createClaudeUsageService(options: {
   db: DatabaseHandle;
   cli: ClaudeCli;
+  /** CLI が保存した資格情報のディレクトリ。リセット枠の読み取りだけが直接使う。 */
+  credentialDir: string;
+  userAgent: string;
   now: () => number;
   /** 最後の試行からこの時間以内なら自動の取得を起動しない。 */
   autoIntervalMs?: number;
@@ -50,6 +64,7 @@ export function createClaudeUsageService(options: {
   // 手動の 60 秒の下限に使う。成功・失敗のどちらでも、CLI を起こした時刻を覚える。
   let lastRunAt: number | null = null;
   let inFlight: Promise<ClaudeRefreshResult> | null = null;
+  let resetInFlight: Promise<ClaudeResetCreditsResult> | null = null;
   // ログアウト開始時に進める。開始前に走っていた取得は、この値が変わったら結果を書かない。
   let generation = 0;
   let loggingOut = false;
@@ -144,6 +159,83 @@ export function createClaudeUsageService(options: {
   }
 
   /**
+   * リセット枠は手動のときだけ取る。token が無い・失効・401 のときは CLI に 1 回だけ更新させ、
+   * 同じ要求を 1 回だけやり直す。refresh token の更新は CLI に任せ、Portal は書かない。
+   */
+  function resetCredits(): Promise<ClaudeResetCreditsResult> {
+    if (loggingOut) {
+      return Promise.resolve({ state: "skipped", reason: "logout" });
+    }
+
+    if (resetInFlight !== null) {
+      return resetInFlight;
+    }
+
+    const task = attemptResetCredits(generation).finally(() => {
+      resetInFlight = null;
+    });
+
+    resetInFlight = task;
+
+    return task;
+  }
+
+  async function attemptResetCredits(startedAtGeneration: number): Promise<ClaudeResetCreditsResult> {
+    const running = inFlight;
+
+    // CLI が credentials を書き換えている間は読まない。終わってから token を読み直す。
+    if (running !== null) {
+      await running.catch(() => undefined);
+    }
+
+    let read = await requestClaudeResetCredits({
+      credentialDir: options.credentialDir,
+      userAgent: options.userAgent,
+      now: options.now,
+    });
+
+    if (read.kind === "needs_credential" || read.kind === "unauthorized") {
+      const refreshed = await refresh("schedule");
+
+      if (refreshed.state === "failed") {
+        return { state: "failed", error: refreshed.error };
+      }
+
+      if (refreshed.state === "skipped") {
+        return { state: "skipped", reason: "logout" };
+      }
+
+      read = await requestClaudeResetCredits({
+        credentialDir: options.credentialDir,
+        userAgent: options.userAgent,
+        now: options.now,
+      });
+    }
+
+    if (startedAtGeneration !== generation) {
+      return { state: "skipped", reason: "logout" };
+    }
+
+    if (read.kind === "ok") {
+      saveClaudeResetCredits(options.db, { capturedAt: options.now(), credits: read.credits });
+
+      return { state: "refreshed" };
+    }
+
+    const failure = resetCreditsError(read);
+
+    try {
+      saveClaudeResetCreditsError(options.db, { code: failure.code, message: failure.message, at: options.now() });
+    } catch {
+      log("claude: リセット枠の失敗を保存できませんでした");
+    }
+
+    log(`claude: reset credits ${failure.code} (${failure.message})`);
+
+    return { state: "failed", error: failure.code };
+  }
+
+  /**
    * 取得は待たない。先に世代を進めて `loggingOut` を立てるので、進行中の取得は結果を書かない。
    * CLI の出力は読まず、成功しても失敗しても `loggingOut` は必ず下ろす。
    */
@@ -176,6 +268,7 @@ export function createClaudeUsageService(options: {
 
     try {
       deleteProviderState(options.db, sourceId);
+      deleteClaudeResetCredits(options.db);
     } catch {
       log("claude: ログアウト後の状態を削除できませんでした");
 
@@ -188,7 +281,19 @@ export function createClaudeUsageService(options: {
     return true;
   }
 
-  return { refresh, logout };
+  return { refresh, resetCredits, logout };
+}
+
+function resetCreditsError(read: Exclude<ClaudeResetCreditsRead, { kind: "ok" }>): ProviderError {
+  switch (read.kind) {
+    case "needs_credential":
+    case "unauthorized":
+      return new ProviderError("reauth_required", "Claude のサインインの期限が切れています");
+    case "schema":
+      return new ProviderError("schema", "Claude のリセット枠を解釈できませんでした");
+    default:
+      return new ProviderError("upstream", "Claude からリセット枠を取得できませんでした");
+  }
 }
 
 function toProviderError(error: unknown): ProviderError {

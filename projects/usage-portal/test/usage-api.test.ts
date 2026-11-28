@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
-import { openDatabase, saveProviderError, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
+import {
+  openDatabase,
+  saveClaudeResetCredits,
+  saveProviderError,
+  saveProviderSnapshot,
+  type DatabaseHandle,
+} from "../src/server/db";
 import { codexSourceId } from "../src/server/codex/source";
 import { buildHealthReport } from "../src/server/health";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
@@ -194,6 +200,23 @@ describe("GET /api/usage", () => {
 
     expect(codex?.resetCredits).toEqual({ available: 2, details });
     expect(payload.sources.find((source) => source.provider === "claude")?.resetCredits).toBeNull();
+  });
+
+  test("Claude のリセット枠を取得時刻つきで返し、他 provider は null にする", async () => {
+    const h = harness();
+    const expiries = [BASE_TIME + 14 * 24 * 60 * 60 * 1000];
+
+    saveClaudeResetCredits(h.db, { capturedAt: BASE_TIME, credits: { available: 1, expiries } });
+
+    const payload = await readUsage(h, await sessionCookie(h.app));
+    const claude = payload.sources.find((source) => source.provider === "claude");
+
+    expect(claude?.claudeResetCredits).toEqual({
+      credits: { available: 1, expiries },
+      capturedAt: BASE_TIME,
+      error: null,
+    });
+    expect(payload.sources.find((source) => source.provider === "codex")?.claudeResetCredits).toBeNull();
   });
 
   test("間引きで点列から消えるリセットも trends[].resets に残す", async () => {

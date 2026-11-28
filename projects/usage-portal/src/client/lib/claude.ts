@@ -1,4 +1,4 @@
-import type { ClaudeRefreshOutcome } from "../api";
+import type { ClaudeRefreshOutcome, ClaudeResetCreditsOutcome } from "../api";
 
 /** カードの表示に要る部分だけ。`/api/usage` の応答全体を持たなくても判定できる。 */
 export type ClaudeSourceState = { capturedAt: number | null; error: { code: string } | null };
@@ -62,5 +62,31 @@ export function claudeRefreshMessage(outcome: ClaudeRefreshOutcome | null): stri
       }
     default:
       return "更新に失敗しました。状態を確認してください。";
+  }
+}
+
+/** リセット枠の手動取得の結果。通常の更新とは別の入口なので、文言も分ける。 */
+export function claudeResetCreditsMessage(outcome: ClaudeResetCreditsOutcome | null): string {
+  if (outcome === null) {
+    return "通信に失敗しました。もう一度試してください。";
+  }
+
+  if (outcome.state === "refreshed") {
+    return "リセット枠を取得しました。";
+  }
+
+  if (outcome.state === "skipped") {
+    return "ログアウトの処理中です。終わってから確認してください。";
+  }
+
+  switch (outcome.error) {
+    case "reauth_required":
+      return "サインインの期限が切れています。端末でサインインし直してください。";
+    case "not_connected":
+      return "Claude にサインインしていません。";
+    case "schema":
+      return "リセット枠の応答を解釈できませんでした。";
+    default:
+      return "リセット枠を取得できませんでした。時間をおいて試してください。";
   }
 }

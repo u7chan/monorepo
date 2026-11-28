@@ -170,6 +170,70 @@ export function describeResetCredits(
 }
 
 /**
+ * Claude のリセット枠（手動取得）。取得済みなら回数と全期限を出し、
+ * 未取得は行を出さない。失敗と「0 件」は別の文言にする。
+ */
+export type ClaudeResetCreditsView = {
+  label: string | null;
+  rows: { remaining: string; at: string }[];
+  notes: string[];
+  /** 取得（または最後の失敗）の時刻。 */
+  captured: string | null;
+};
+
+export function describeClaudeResetCredits(
+  value: {
+    credits: { available: number; expiries: number[] } | null;
+    capturedAt: number | null;
+    error: { code: string; at: number } | null;
+  } | null,
+  now: number,
+): ClaudeResetCreditsView | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (value.credits === null) {
+    // 一度も取得できていない。失敗の記録が無ければ、まだ押されていないだけ。
+    if (value.error === null) {
+      return null;
+    }
+
+    return {
+      label: null,
+      rows: [],
+      notes: ["リセット枠を取得できませんでした"],
+      captured: `試行 ${formatDateTime(value.error.at)}`,
+    };
+  }
+
+  const rows = value.credits.expiries
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => a - b)
+    .map((at) => ({
+      remaining: at <= now ? "期限切れ" : `あと ${describeRemaining(at - now)}`,
+      at: `期限 ${formatDateTime(at)}`,
+    }));
+  const notes: string[] = [];
+
+  if (rows.length === 0) {
+    notes.push("リセット枠なし");
+  }
+
+  if (value.error !== null) {
+    notes.push("最新の取得に失敗しました");
+  }
+
+  return {
+    // 0 回のときは「0回」と「なし」を重ねない。
+    label: value.credits.available > 0 ? `リセット枠 ${value.credits.available}回` : null,
+    rows,
+    notes,
+    captured: value.capturedAt === null ? null : `取得 ${formatDateTime(value.capturedAt)}`,
+  };
+}
+
+/**
  * ローリングは 5 時間以内に終わる。日付は「あと N 時間」から分かるので時計だけを出し、日をまたぐときだけ「翌」を付ける。
  * 期間が読めず 2 日以上先になったときは、いつ戻るかを読み違えないよう日付ごと出す。
  */

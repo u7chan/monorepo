@@ -40,6 +40,18 @@ export type UsageSourceAccount = { id: string; name: string; icon: string };
 /** Codex のリセット枠。`details` が null なら期限は未取得で、回数だけが分かる。 */
 export type ResetCredits = { available: number; details: { expiresAt: number | null }[] | null };
 
+/** Claude のリセット枠（手動取得）。`credits` が null なら一度も取得できていない。 */
+export type ClaudeResetCredits = {
+  credits: { available: number; expiries: number[] } | null;
+  capturedAt: number | null;
+  error: { code: string; message: string; at: number } | null;
+};
+
+export type ClaudeResetCreditsOutcome =
+  | { state: "refreshed" }
+  | { state: "skipped"; reason: "logout" }
+  | { state: "failed"; error: string };
+
 export type UsageSource = {
   /** `codex` または account の uuid。 */
   id: string;
@@ -59,6 +71,8 @@ export type UsageSource = {
   notes: string[];
   /** Codex のリセット枠。他の provider と、古い server の応答では null。 */
   resetCredits: ResetCredits | null;
+  /** Claude のリセット枠。Claude 以外と、未取得では null。 */
+  claudeResetCredits: ClaudeResetCredits | null;
   /** 窓ごとの推移。2 点未満の窓は含まれない。 */
   trends: Trend[];
 };
@@ -453,6 +467,42 @@ export async function refreshClaudeUsage(mode: ClaudeRefreshMode): Promise<Claud
   return parseClaudeRefresh(await response.json().catch(() => null));
 }
 
+/** 手動のリセット枠取得。通常の `/api/claude/refresh` とは別に呼ぶ。 */
+export async function refreshClaudeResetCredits(): Promise<ClaudeResetCreditsOutcome | Unauthorized | null> {
+  const response = await fetch("/api/claude/reset-credits", {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseClaudeResetCreditsOutcome(await response.json().catch(() => null));
+}
+
+export function parseClaudeResetCreditsOutcome(body: unknown): ClaudeResetCreditsOutcome | null {
+  const state = readString(body, "state");
+
+  if (state === "refreshed") {
+    return { state };
+  }
+
+  if (state === "skipped") {
+    return readString(body, "reason") === "logout" ? { state, reason: "logout" } : null;
+  }
+
+  if (state === "failed") {
+    return { state, error: readString(body, "error") ?? "unavailable" };
+  }
+
+  return null;
+}
+
 export function parseClaudeRefresh(body: unknown): ClaudeRefreshOutcome | null {
   const state = readString(body, "state");
 
@@ -768,6 +818,7 @@ function parseSource(value: unknown): UsageSource | null {
       .filter((window) => window !== null),
     notes: readStrings(value, "notes"),
     resetCredits: parseResetCredits(readObject(value, "resetCredits")),
+    claudeResetCredits: parseClaudeResetCredits(readObject(value, "claudeResetCredits")),
     trends: readObjects(value, "trends")
       .map(parseTrend)
       .filter((trend) => trend !== null),
@@ -796,6 +847,24 @@ function parseResetCredits(value: Record<string, unknown> | null): ResetCredits 
     details: Array.isArray(value.details)
       ? readObjects(value, "details").map(parseResetCreditDetail).filter(isPresent)
       : null,
+  };
+}
+
+function parseClaudeResetCredits(value: Record<string, unknown> | null): ClaudeResetCredits | null {
+  if (!value) {
+    return null;
+  }
+
+  const credits = readObject(value, "credits");
+  const available = credits ? readNumber(credits, "available") : null;
+  const error = readObject(value, "error");
+  const code = error ? readString(error, "code") : null;
+
+  return {
+    credits: credits && available !== null ? { available, expiries: readNumbers(credits, "expiries") } : null,
+    capturedAt: readNumber(value, "capturedAt"),
+    error:
+      error && code ? { code, message: readString(error, "message") ?? "", at: readNumber(error, "at") ?? 0 } : null,
   };
 }
 

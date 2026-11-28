@@ -891,6 +891,7 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
     windows: [],
     notes: [],
     resetCredits: null,
+    claudeResetCredits: null,
     trends: [],
   };
 

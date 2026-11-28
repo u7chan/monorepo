@@ -15,6 +15,7 @@ import {
 import { parseClaudeUsage } from "../src/server/providers/claude";
 import { BASE_TIME } from "./support";
 
+const CREDENTIAL_DIR = join(tmpdir(), "usage-portal-claude-test-credentials");
 const MINUTE = 60 * 1000;
 const USAGE_TEXT = [
   "Current session: 12% used · resets Nov 19, 12:50am (America/Los_Angeles)",
@@ -71,6 +72,8 @@ function harness(run: Run = defaultRun) {
   const service = createClaudeUsageService({
     db,
     cli,
+    credentialDir: CREDENTIAL_DIR,
+    userAgent: "usage-portal/test",
     now: () => clock,
     log: (message) => logs.push(message),
   });
